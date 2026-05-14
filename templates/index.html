@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Betting App Login</title>
+
+    <!-- Bootstrap -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
+          rel="stylesheet">
+
+    <style>
+        body {
+            height: 100vh;
+            background: linear-gradient(135deg, #1e3c72, #2a5298);
+        }
+    </style>
+</head>
+
+<body class="d-flex align-items-center justify-content-center">
+
+<div class="card shadow-lg p-4" style="width: 400px; border-radius: 15px;">
+
+    <div class="text-center mb-4">
+        <h2 class="fw-bold">Betting App</h2>
+        <p class="text-muted">Enter your username to continue</p>
+    </div>
+
+    <form method="POST">
+
+        <div class="mb-3">
+            <input type="text"
+                   name="username"
+                   class="form-control form-control-lg"
+                   placeholder="Username"
+                   required
+                   autofocus>
+        </div>
+
+        <div class="d-grid">
+            <button type="submit"
+                    class="btn btn-primary btn-lg">
+                Enter Dashboard
+            </button>
+        </div>
+
+    </form>
+
+</div>
+
+</body>
+</html>
