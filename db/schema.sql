@@ -1,23 +1,23 @@
-DROP TABLE IF EXISTS users;
-DROP TABLE IF EXISTS players;
-DROP TABLE IF EXISTS teams;
-DROP TABLE IF EXISTS members;
-DROP TABLE IF EXISTS matches;
-DROP TABLE IF EXISTS playing_teams;
-DROP TABLE IF EXISTS positions;
-DROP TABLE IF EXISTS bets;
+DROP TABLE IF EXISTS paid_out_bets;
 DROP TABLE IF EXISTS results;
+DROP TABLE IF EXISTS bets;
+DROP TABLE IF EXISTS positions;
+DROP TABLE IF EXISTS playing_teams;
+DROP TABLE IF EXISTS matches;
+DROP TABLE IF EXISTS members;
+DROP TABLE IF EXISTS teams;
+DROP TABLE IF EXISTS players;
+DROP TABLE IF EXISTS users;
 
 CREATE TABLE users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT UNIQUE NOT NULL,
-    balance INTEGER NOT NULL DEFAULT 100
+    username TEXT UNIQUE NOT NULL
 );
+
 
 CREATE TABLE players (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    elo REAL NOT NULL DEFAULT 0.
+    name TEXT NOT NULL
 );
 
 CREATE TABLE teams (
@@ -66,7 +66,7 @@ CREATE TABLE bets (
     team_id INTEGER NOT NULL,
     position_name TEXT NOT NULL,
     amount INTEGER NOT NULL,
-    course REAL NOT NULL,
+    time DATETIME NOT NULL DEFAULT (datetime('now')),
 
     FOREIGN KEY (user_id) REFERENCES users(id),
 
@@ -78,13 +78,6 @@ CREATE TABLE bets (
 
     -- we allow multiple bets, why not
     -- UNIQUE (user_id, match_id, team_id, position)
-);
-
-CREATE TABLE paid_out_bets (
-    bet_id INTEGER PRIMARY KEY,
-    time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    FOREIGN KEY (bet_id) REFERENCES bets(id)
 );
 
 CREATE TABLE results (

@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Admin – SmrcnaBet</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-dark" data-bs-theme="dark">
+<div class="container-fluid py-3">
+
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3 class="text-light m-0">Admin Panel</h3>
+        <div class="d-flex gap-2">
+            <a href="{{ url_for('admin_sql') }}" class="btn btn-outline-danger btn-sm"
+               onclick="document.getElementById('sql-box').hidden=!document.getElementById('sql-box').hidden;return false">SQL</a>
+            <a href="{{ url_for('index') }}" class="btn btn-outline-light btn-sm">← App</a>
+        </div>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for cat, msg in messages %}
+                <div class="alert alert-{{ 'warning' if cat == 'warning' else 'info' }} alert-dismissible fade show py-2 small">
+                    {{ msg }}
+                    <button type="button" class="btn-close py-2" data-bs-dismiss="alert"></button>
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    <!-- SQL box (hidden by default) -->
+    <div id="sql-box" class="card mb-3" {% if sql_result is none and not sql_error %}hidden{% endif %}>
+        <div class="card-header d-flex justify-content-between">
+            <span>SQL Terminal</span>
+            <button class="btn-close btn-close-white btn-sm" onclick="this.closest('.card').hidden=true"></button>
+        </div>
+        <div class="card-body">
+            <form method="POST" action="{{ url_for('admin_sql') }}">
+                <textarea name="query" class="form-control font-monospace small mb-2"
+                          rows="3" placeholder="SELECT * FROM matches;" spellcheck="false"></textarea>
+                <button type="submit" class="btn btn-danger btn-sm">Execute</button>
+            </form>
+            {% if sql_error %}
+                <div class="alert alert-danger mt-2 mb-0 py-1 small">{{ sql_error }}</div>
+            {% endif %}
+            {% if sql_result is not none %}
+                <hr class="my-2">
+                {% if sql_result is string %}
+                    <p class="text-info mb-0 small">{{ sql_result }}</p>
+                {% elif sql_result is iterable and sql_result|length > 0 %}
+                    <div style="max-height:300px; overflow:auto;">
+                        <table class="table table-sm table-striped mb-0 small">
+                            <thead><tr>{% for k in sql_result[0].keys() %}<th>{{ k }}</th>{% endfor %}</tr></thead>
+                            <tbody>{% for r in sql_result %}<tr>{% for v in r.values() %}<td>{{ v }}</td>{% endfor %}</tr>{% endfor %}</tbody>
+                        </table>
+                    </div>
+                    <p class="text-muted mt-1 mb-0 small">{{ sql_result|length }} row(s)</p>
+                {% else %}
+                    <p class="text-muted mb-0 small">Empty</p>
+                {% endif %}
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- TABS                                                          -->
+    <!-- ============================================================ -->
+    <ul class="nav nav-tabs nav-fill mb-3" id="adminTabs">
+        <li class="nav-item">
+            <button class="nav-link {{ 'active' if active_tab == 'players' }}"
+                    data-bs-toggle="tab" data-bs-target="#tab-players">Players</button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link {{ 'active' if active_tab == 'matches' }}"
+                    data-bs-toggle="tab" data-bs-target="#tab-matches">Matches</button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link {{ 'active' if active_tab == 'users' }}"
+                    data-bs-toggle="tab" data-bs-target="#tab-users">Users</button>
+        </li>
+    </ul>
+
+    <div class="tab-content">
+
+        <!-- ======================================================== -->
+        <!-- TAB: PLAYERS                                              -->
+        <!-- ======================================================== -->
+        <div class="tab-pane {{ 'show active' if active_tab == 'players' }}" id="tab-players">
+            <div class="row g-3">
+
+                <!-- Left: Players -->
+                <div class="col-md-6">
+                    <div class="card h-100">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span>Players ({{ players|length }})</span>
+                            <button class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#addPlayerModal">+ Add Player</button>
+                        </div>
+                        <div class="card-body">
+                            <div style="max-height:400px; overflow:auto;">
+                                {% for p in players %}
+                                    <div class="small py-1 border-bottom">
+                                        <strong>#{{ p.id }}</strong> {{ p.name }}
+                                        {% if p.teams %}<span class="text-muted">→ {{ p.teams }}</span>{% endif %}
+                                    </div>
+                                {% else %}
+                                    <div class="text-muted small">No players yet.</div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right: Teams -->
+                <div class="col-md-6">
+                    <div class="card h-100">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span>Teams ({{ teams|length }})</span>
+                            <button class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#createTeamModal">+ Create Team</button>
+                        </div>
+                        <div class="card-body">
+                            {% if teams %}
+                                {% for t in teams %}
+                                    <div class="border rounded p-2 mb-2">
+                                        <div class="d-flex justify-content-between align-items-start">
+                                            <div>
+                                                <strong class="small">#{{ t.id }} {{ t.name }}</strong>
+                                                {% set mids = team_member_ids.get(t.id, []) %}
+                                                {% if mids %}
+                                                    <div class="mt-1 small text-muted">
+                                                        {% for p in players %}
+                                                            {%- if p.id in mids %}{{ p.name }}{% if not loop.last %}, {% endif %}{% endif -%}
+                                                        {% endfor %}
+                                                    </div>
+                                                {% else %}
+                                                    <div class="mt-1 small text-muted">(no members)</div>
+                                                {% endif %}
+                                            </div>
+                                            <button class="btn btn-outline-primary btn-sm py-0"
+                                                    data-team-id="{{ t.id }}"
+                                                    data-team-name="{{ t.name }}"
+                                                    data-members="{{ team_member_ids.get(t.id, [])|join(',') }}"
+                                                    onclick="openEditTeam(this)">Edit</button>
+                                        </div>
+                                    </div>
+                                {% endfor %}
+                            {% else %}
+                                <div class="text-muted small">No teams yet.</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Add Player Modal -->
+        <div class="modal fade" id="addPlayerModal" tabindex="-1" data-bs-keyboard="true">
+            <div class="modal-dialog modal-dialog-centered modal-sm">
+                <div class="modal-content bg-dark">
+                    <form method="POST" action="{{ url_for('admin_create_player') }}">
+                        <div class="modal-header">
+                            <h5 class="modal-title">Add Player</h5>
+                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">
+                            <input type="text" name="name" class="form-control" placeholder="Player name" required autofocus>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                            <button type="submit" class="btn btn-success btn-sm">Add Player</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Edit Team Modal -->
+        <div class="modal fade" id="editTeamModal" tabindex="-1" data-bs-keyboard="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content bg-dark">
+                    <form id="edit-team-form" method="POST" action="">
+                        <div class="modal-header">
+                            <h5 class="modal-title">Edit Team <span id="edit-team-label"></span></h5>
+                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">
+                            <div class="alert alert-warning py-2 small mb-3">
+                                ⚠ Changing team members will affect past match ratings.
+                            </div>
+                            <small class="text-muted">Members:</small>
+                            <div style="max-height:300px; overflow:auto;" class="mt-1">
+                                {% for p in players %}
+                                    <div class="form-check">
+                                        <input class="form-check-input member-checkbox" type="checkbox" name="player_ids"
+                                               value="{{ p.id }}" id="edit-cb-{{ p.id }}">
+                                        <label class="form-check-label small" for="edit-cb-{{ p.id }}">{{ p.name }}</label>
+                                    </div>
+                                {% else %}
+                                    <div class="text-muted small">No players yet.</div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                            <button type="submit" class="btn btn-primary btn-sm">Save Changes</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Create Team Modal -->
+        <div class="modal fade" id="createTeamModal" tabindex="-1">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content bg-dark">
+                    <form method="POST" action="{{ url_for('admin_create_team_full') }}">
+                        <div class="modal-header">
+                            <h5 class="modal-title">Create Team</h5>
+                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">
+                            <input type="text" name="name" class="form-control mb-3" placeholder="Team name" required autofocus>
+                            <small class="text-muted">Select members:</small>
+                            <div style="max-height:300px; overflow:auto;" class="mt-1">
+                                {% for p in players %}
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" name="player_ids"
+                                               value="{{ p.id }}" id="modal-p{{ p.id }}">
+                                        <label class="form-check-label small" for="modal-p{{ p.id }}">{{ p.name }}</label>
+                                    </div>
+                                {% else %}
+                                    <div class="text-muted small">No players yet. Add some first.</div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                            <button type="submit" class="btn btn-success btn-sm">Create Team</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- ======================================================== -->
+        <!-- TAB: MATCHES                                              -->
+        <!-- ======================================================== -->
+        <div class="tab-pane {{ 'show active' if active_tab == 'matches' }}" id="tab-matches">
+
+            <!-- Filter bar -->
+            <div class="card mb-3">
+                <div class="card-body py-2">
+                    <form method="GET" action="{{ url_for('admin') }}" class="row g-2 align-items-end"
+                          id="filter-form">
+                        <input type="hidden" name="tab" value="matches">
+                        <div class="col-auto">
+                            <select name="status" class="form-select form-select-sm"
+                                    onchange="document.getElementById('filter-form').submit()">
+                                <option value="">All matches</option>
+                                <option value="upcoming" {{ 'selected' if filter_status == 'upcoming' }}>Upcoming</option>
+                                <option value="finished" {{ 'selected' if filter_status == 'finished' }}>Finished</option>
+                            </select>
+                        </div>
+                        <div class="col-auto">
+                            <select name="team" class="form-select form-select-sm"
+                                    onchange="document.getElementById('filter-form').submit()">
+                                <option value="">Any team</option>
+                                {% for t in teams %}
+                                    <option value="{{ t.id }}" {{ 'selected' if filter_team == t.id }}>
+                                        #{{ t.id }} {{ t.name }}{% if t.members %} [{{ t.members }}]{% endif %}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-auto">
+                            <select name="player" class="form-select form-select-sm"
+                                    onchange="document.getElementById('filter-form').submit()">
+                                <option value="">Any player</option>
+                                {% for p in players %}
+                                    <option value="{{ p.id }}" {{ 'selected' if filter_player == p.id }}>{{ p.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-auto">
+                            <select name="sort_by" class="form-select form-select-sm"
+                                    onchange="document.getElementById('filter-form').submit()">
+                                {% set cur = filter_sort + '|' + filter_order %}
+                                <option value="time|desc" {{ 'selected' if cur == 'time|desc' }}>Date ↓</option>
+                                <option value="time|asc" {{ 'selected' if cur == 'time|asc' }}>Date ↑</option>
+                                <option value="name|asc" {{ 'selected' if cur == 'name|asc' }}>Name A→Z</option>
+                                <option value="name|desc" {{ 'selected' if cur == 'name|desc' }}>Name Z→A</option>
+                            </select>
+                        </div>
+                    </form>
+                    {% if filter_status or filter_team or filter_player %}
+                        <small class="text-muted mt-1">
+                            {{ matches|length }} / {{ total_matches }} match{{ 'es' if matches|length != 1 }}
+                            <a href="{{ url_for('admin', tab='matches') }}" class="ms-2 text-decoration-none">&times; clear</a>
+                        </small>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Create Match (collapsible) -->
+            <div class="d-flex justify-content-end mb-2">
+                <button class="btn btn-primary btn-sm" onclick="toggleCreateMatch()">+ New Match</button>
+            </div>
+            <div id="create-match-box" class="card border-primary mb-3" hidden>
+                <div class="card-header bg-primary text-white fw-bold d-flex justify-content-between">
+                    <span>Create Match</span>
+                    <button class="btn-close btn-close-white btn-sm" onclick="toggleCreateMatch()"></button>
+                </div>
+                <div class="card-body">
+                    <form method="POST" action="{{ url_for('admin_create_match') }}">
+                        <div class="row g-2">
+                            <div class="col-md-4">
+                                <input type="text" name="name" class="form-control" placeholder="Match name" required>
+                            </div>
+                            <div class="col-md-3">
+                                <input type="date" name="match_date" class="form-control">
+                                <small class="text-muted">Date (empty = today)</small>
+                            </div>
+                            <div class="col-md-3">
+                                <input type="time" name="match_time" class="form-control" value="20:00">
+                                <small class="text-muted">Time (optional)</small>
+                            </div>
+                            <div class="col-md-2 d-grid">
+                                <button type="submit" class="btn btn-primary">Create</button>
+                            </div>
+                        </div>
+
+                        <hr class="my-2">
+                        <label class="fw-bold small mb-2">Teams</label>
+                        <div class="row">
+                            {% for t in teams %}
+                                <div class="col-md-3 col-lg-2">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" name="team_ids"
+                                               value="{{ t.id }}" id="mteam-{{ t.id }}">
+                                        <label class="form-check-label small" for="mteam-{{ t.id }}">
+                                            #{{ t.id }} {{ t.name }}
+                                            {% if t.members %}<br><span class="text-muted">{{ t.members }}</span>{% endif %}
+                                        </label>
+                                    </div>
+                                </div>
+                            {% else %}
+                                <p class="text-muted small">No teams yet. Add them in the Players tab.</p>
+                            {% endfor %}
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Match list -->
+            {% if matches %}
+                {% for md in matches %}
+                    <div class="card mb-2">
+                        <div class="card-header d-flex flex-wrap align-items-center gap-2
+                                    {{ 'bg-secondary' if md.has_results else '' }}">
+                            <strong>{{ md.match.name }}</strong>
+                            <span class="small text-muted">{{ md.match.time }}</span>
+                            {% if md.has_results %}
+                                <span class="badge bg-success">results in</span>
+                            {% else %}
+                                <span class="badge bg-warning text-dark">upcoming</span>
+                            {% endif %}
+                            <div class="ms-auto">
+                                <form method="POST" action="{{ url_for('admin_delete_match', mid=md.match.id) }}" class="d-inline">
+                                    <button class="btn btn-outline-danger btn-sm"
+                                            onclick="return confirm('Delete this match and all related data?')">Delete</button>
+                                </form>
+                            </div>
+                        </div>
+                        <div class="card-body py-2">
+                            {% if md.teams and md.positions %}
+                                <form id="save-results-{{ md.match.id }}" method="POST"
+                                      action="{{ url_for('admin_set_all_results', mid=md.match.id) }}">
+                                    {% for t in md.teams %}
+                                        {% set current_pos = md.results|selectattr('team_id', 'equalto', t.team_id)|first %}
+                                        <div class="row g-1 align-items-center mb-1">
+                                            <div class="col-auto">
+                                                <select name="pos_{{ t.team_id }}" class="form-select form-select-sm"
+                                                        style="width:auto;min-width:60px;">
+                                                    <option value="">—</option>
+                                                    {% for p in md.positions %}
+                                                        <option value="{{ p.position_name }}"
+                                                            {% if current_pos and current_pos.position_name == p.position_name %}selected{% endif %}>
+                                                            {{ p.position_name }}
+                                                        </option>
+                                                    {% endfor %}
+                                                </select>
+                                            </div>
+                                            <div class="col-auto">
+                                                <strong class="small">#{{ t.team_id }} {{ t.name }}</strong>
+                                                {% if t.members %}
+                                                    <span class="text-muted small">({{ t.members }})</span>
+                                                {% endif %}
+                                            </div>
+                                            <div class="col-auto">
+                                                {% if current_pos %}
+                                                    <span class="text-success small">✓</span>
+                                                {% endif %}
+                                            </div>
+                                        </div>
+                                    {% endfor %}
+                                </form>
+                                <div class="mt-2 d-flex gap-1">
+                                    <button type="submit" form="save-results-{{ md.match.id }}"
+                                            class="btn btn-primary btn-sm">Save Results</button>
+                                    {% if md.has_results %}
+                                        <form method="POST" action="{{ url_for('admin_clear_results', mid=md.match.id) }}">
+                                            <button class="btn btn-outline-warning btn-sm">Clear Results</button>
+                                        </form>
+                                    {% endif %}
+                                </div>
+                            {% elif md.teams %}
+                                <small class="text-muted">No positions defined for this match.</small>
+                            {% else %}
+                                <small class="text-muted">No teams</small>
+                            {% endif %}
+                        </div>
+                    </div>
+                {% endfor %}
+            {% else %}
+                <div class="card">
+                    <div class="card-body text-muted">No matches match your filters.</div>
+                </div>
+            {% endif %}
+        </div>
+
+        <!-- ======================================================== -->
+        <!-- TAB: USERS                                               -->
+        <!-- ======================================================== -->
+        <div class="tab-pane {{ 'show active' if active_tab == 'users' }}" id="tab-users">
+            <div class="card">
+                <div class="card-header">Users</div>
+                <div class="card-body">
+                    {% if users %}
+                        <table class="table table-sm">
+                            <thead><tr><th>ID</th><th>Username</th><th>Balance</th><th>Bets</th></tr></thead>
+                            <tbody>
+                                {% for u in users %}
+                                    <tr>
+                                        <td>{{ u.id }}</td>
+                                        <td>{{ u.username }}</td>
+                                        <td>${{ "%.2f"|format(u.balance) }}</td>
+                                        <td>{{ u.bet_count }}</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    {% else %}
+                        <p class="text-muted">No users yet.</p>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Open bets (matches without results) -->
+            <div class="card mt-3">
+                <div class="card-header">Open Bets ({{ open_bets|length }})</div>
+                <div class="card-body">
+                    {% if open_bets %}
+                        <div style="max-height:300px; overflow:auto;">
+                            <table class="table table-sm">
+                                <thead><tr><th>User</th><th>Amount</th><th>Course</th><th>Match</th><th>Bet</th></tr></thead>
+                                <tbody>
+                                    {% for b in open_bets %}
+                                        <tr>
+                                            <td>{{ b.username }}</td>
+                                            <td>${{ "%.0f"|format(b.amount) }}</td>
+                                            <td>{{ b.course }}</td>
+                                            <td>{{ b.match_name }}</td>
+                                            <td>#{{ b.team_id }} {{ b.team_name }} – {{ b.position_name }}</td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <p class="text-muted">No open bets.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+    </div><!-- /tab-content -->
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    function toggleCreateMatch() {
+        const box = document.getElementById('create-match-box');
+        box.hidden = !box.hidden;
+    }
+
+    // Edit team modal
+    function openEditTeam(btn) {
+        const teamId = btn.dataset.teamId;
+        const teamName = btn.dataset.teamName;
+        const members = (btn.dataset.members || '').split(',').filter(Boolean);
+
+        document.getElementById('edit-team-label').textContent = '#' + teamId + ' ' + teamName;
+        document.getElementById('edit-team-form').action = '/admin/team/' + teamId + '/members';
+
+        document.querySelectorAll('#editTeamModal .member-checkbox').forEach(cb => cb.checked = false);
+        members.forEach(id => {
+            const cb = document.getElementById('edit-cb-' + id);
+            if (cb) cb.checked = true;
+        });
+
+        new bootstrap.Modal(document.getElementById('editTeamModal')).show();
+    }
+
+    // Modal keyboard handling
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape') {
+            const openModal = document.querySelector('.modal.show');
+            if (openModal) {
+                const modal = bootstrap.Modal.getInstance(openModal);
+                if (modal) modal.hide();
+            }
+        }
+    });
+    document.querySelectorAll('.modal').forEach(m => {
+        m.addEventListener('shown.bs.modal', () => {
+            const input = m.querySelector('input[type="text"]');
+            if (input) { input.focus(); }
+            else { const cb = m.querySelector('.member-checkbox'); if (cb) cb.focus(); }
+        });
+    });
+
+    // Switch tab via URL param without reload
+    const tabEl = document.querySelector('#adminTabs [data-bs-target="#tab-' + new URLSearchParams(location.search).get('tab') || 'players' + '"]');
+    if (tabEl) new bootstrap.Tab(tabEl).show();
+
+    // Update URL when tab changes (so filters work from the right tab)
+    document.querySelectorAll('#adminTabs [data-bs-toggle="tab"]').forEach(el => {
+        el.addEventListener('shown.bs.tab', e => {
+            const tab = e.target.getAttribute('data-bs-target').replace('#tab-', '');
+            const url = new URL(location);
+            url.searchParams.set('tab', tab);
+            history.replaceState(null, '', url);
+        });
+    });
+</script>
+</body>
+</html>
