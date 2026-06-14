@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Dashboard – {{ user.username }}</title>
+    <title>{{ _('Dashboard') }} – {{ user.username }}</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         .badge-selected { outline: 3px solid #0d6efd; outline-offset: 2px; }
@@ -16,11 +16,21 @@
 <div class="container mt-4 mb-5">
 
     <div class="d-flex flex-column flex-sm-row justify-content-sm-between align-items-center mb-4 text-center text-sm-start">
-        <h2 class="mb-0">Welcome {{ user.username }}</h2>
+        <h2 class="mb-0">{{ _('Welcome {username}', username=user.username) }}</h2>
         <div class="d-flex align-items-center gap-2 mt-2 mt-sm-0">
-            <h4 class="text-success mb-0">Balance: {{ "%.2f"|format(computed_balance) }} <img src="{{ url_for('static', filename='vp-icon.svg') }}" alt="VP" style="height:1em;vertical-align:middle;"></h4>
-            <a href="{{ url_for('allbets', username=user.username) }}" class="btn btn-outline-dark btn-sm">All Bets</a>
-            <a href="{{ url_for('index') }}" class="btn btn-outline-danger btn-sm">Logout</a>
+            <h4 class="text-success mb-0">{{ _('Balance:') }} {{ "%.2f"|format(computed_balance) }} <img src="{{ url_for('static', filename='vp-icon.svg') }}" alt="VP" style="height:1em;vertical-align:middle;"></h4>
+            <a href="{{ url_for('allbets', username=user.username) }}" class="btn btn-outline-dark btn-sm">{{ _('All Bets') }}</a>
+            <div class="dropdown">
+                <button class="btn btn-outline-secondary btn-sm dropdown-toggle" data-bs-toggle="dropdown">
+                    {% for l in available_languages %}{% if l.code == lang %}{{ l.flag }}{% endif %}{% endfor %} {{ _('Language') }}
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                    {% for l in available_languages %}
+                        <li><a class="dropdown-item {{ 'active' if l.code == lang }}" href="{{ url_for('set_lang', code=l.code) }}">{{ l.flag }} {{ l.name }}</a></li>
+                    {% endfor %}
+                </ul>
+            </div>
+            <a href="{{ url_for('index') }}" class="btn btn-outline-danger btn-sm">{{ _('Logout') }}</a>
         </div>
     </div>
 
@@ -29,7 +39,7 @@
         <div class="col-md-7">
 
             <div class="card shadow-sm mb-4">
-                <div class="card-header bg-primary text-white">Upcoming Matches</div>
+                <div class="card-header bg-primary text-white">{{ _('Upcoming Matches') }}</div>
                 <div class="card-body">
                     {% if upcoming %}
                         {% for m in upcoming %}
@@ -61,19 +71,19 @@
                             </div>
                         {% endfor %}
                     {% else %}
-                        <p class="text-muted">No upcoming matches.</p>
+                        <p class="text-muted">{{ _('No upcoming matches.') }}</p>
                     {% endif %}
                 </div>
             </div>
 
             <div class="card shadow-sm mb-4">
-                <div class="card-header bg-dark text-white">Player Ratings</div>
+                <div class="card-header bg-dark text-white">{{ _('Player Ratings') }}</div>
                 <div class="card-body">
                     {% if leaderboard %}
                         <div class="table-responsive">
                         <table class="table table-sm mb-0">
                             <thead>
-                                <tr><th>#</th><th>Player</th><th>Rating</th></tr>
+                                <tr><th>{{ _('#') }}</th><th>{{ _('Player') }}</th><th>{{ _('Rating') }}</th></tr>
                             </thead>
                             <tbody>
                                 {% for p in leaderboard %}
@@ -87,7 +97,7 @@
                         </table>
                         </div>
                     {% else %}
-                        <p class="text-muted">No players yet.</p>
+                        <p class="text-muted">{{ _('No players yet.') }}</p>
                     {% endif %}
                 </div>
             </div>
@@ -96,7 +106,7 @@
         <div class="col-md-5">
 
             <div class="card shadow-sm mb-4">
-                <div class="card-header bg-warning">Open Bets</div>
+                <div class="card-header bg-warning">{{ _('Open Bets') }}</div>
                 <div class="card-body">
                     {% if open_bets %}
                         <ul class="list-group">
@@ -113,13 +123,13 @@
                             {% endfor %}
                         </ul>
                     {% else %}
-                        <p class="text-muted">No open bets.</p>
+                        <p class="text-muted">{{ _('No open bets.') }}</p>
                     {% endif %}
                 </div>
             </div>
 
             <div class="card shadow-sm mb-4">
-                <div class="card-header bg-secondary text-white">Past Results</div>
+                <div class="card-header bg-secondary text-white">{{ _('Past Results') }}</div>
                 <div class="card-body py-2">
                     {% if past %}
                         {% for m in past %}
@@ -133,9 +143,9 @@
                                     {% if m.has_results %}
                                         <span class="badge bg-success">✔</span>
                                     {% else %}
-                                        <span class="badge bg-warning text-dark">pending</span>
+                                        <span class="badge bg-warning text-dark">{{ _('pending') }}</span>
                                     {% endif %}
-                                    <small class="text-muted ms-auto collapse-label" >show</small>
+                                    <small class="text-muted ms-auto collapse-label">{{ _('show') }}</small>
                                 </div>
                                 <div class="collapse ms-3" id="past-detail-{{ loop.index }}">
                                     {% if m.has_results %}
@@ -145,14 +155,14 @@
                                             {% endfor %}
                                         </ul>
                                     {% else %}
-                                        <p class="text-muted small my-1">Results not yet set.</p>
+                                        <p class="text-muted small my-1">{{ _('Results not yet set.') }}</p>
                                     {% endif %}
                                 </div>
                             </div>
                             {% if not loop.last %}<hr class="my-1">{% endif %}
                         {% endfor %}
                     {% else %}
-                        <p class="text-muted">No results yet.</p>
+                        <p class="text-muted">{{ _('No results yet.') }}</p>
                     {% endif %}
                 </div>
             </div>
@@ -175,8 +185,8 @@
                     <input type="hidden" name="selection" id="modalSelection" value="">
                     <div>
                         <div class="d-flex justify-content-between align-items-center mb-1">
-                            <label class="form-label fw-bold mb-0">Bet Amount</label>
-                            <span class="text-success fw-bold">Balance: {{ "%.2f"|format(computed_balance) }} <img src="{{ url_for('static', filename='vp-icon.svg') }}" alt="VP" style="height:1em;vertical-align:middle;"></span>
+                            <label class="form-label fw-bold mb-0">{{ _('Bet Amount') }}</label>
+                            <span class="text-success fw-bold">{{ _('Balance:') }} {{ "%.2f"|format(computed_balance) }} <img src="{{ url_for('static', filename='vp-icon.svg') }}" alt="VP" style="height:1em;vertical-align:middle;"></span>
                         </div>
                         <input type="number" class="form-control form-control-lg"
                                name="amount" id="modalAmount"
@@ -185,7 +195,7 @@
                     </div>
                 </div>
                 <div class="modal-footer border-top-0 pt-0">
-                    <button type="submit" class="btn btn-success w-100 btn-lg">Place Bet</button>
+                    <button type="submit" class="btn btn-success w-100 btn-lg">{{ _('Place Bet') }}</button>
                 </div>
             </form>
         </div>
@@ -195,6 +205,9 @@
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 var betModal = null;
+var tShow = {{ _('show')|tojson }};
+var tHide = {{ _('hide')|tojson }};
+var tOdds = {{ _('Odds: ')|tojson }};
 
 function selectBet(badgeEl) {
     document.querySelectorAll('.badge-selected').forEach(function(el) { el.classList.remove('badge-selected'); });
@@ -207,7 +220,7 @@ function selectBet(badgeEl) {
 
     document.getElementById('modalMatchName').textContent = matchName;
     document.getElementById('modalTeamInfo').textContent = teamName + ' \u2013 ' + posName;
-    document.getElementById('modalOdds').textContent = 'Odds: ' + odds;
+    document.getElementById('modalOdds').textContent = tOdds + odds;
     document.getElementById('modalSelection').value = badgeEl.dataset.teamId + ':' + posName + ':' + badgeEl.dataset.matchId;
 
     var input = document.getElementById('modalAmount');
@@ -231,8 +244,8 @@ document.getElementById('betModal').addEventListener('hidden.bs.modal', function
 document.querySelectorAll('.collapse').forEach(function(el) {
     var label = el.closest('.mb-1').querySelector('.collapse-label');
     if (!label) return;
-    el.addEventListener('show.bs.collapse', function() { label.textContent = 'hide'; });
-    el.addEventListener('hide.bs.collapse', function() { label.textContent = 'show'; });
+    el.addEventListener('show.bs.collapse', function() { label.textContent = tHide; });
+    el.addEventListener('hide.bs.collapse', function() { label.textContent = tShow; });
 });
 </script>
 </body>

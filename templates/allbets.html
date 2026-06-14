@@ -2,40 +2,50 @@
 <html>
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>All Bets{% if user %} – {{ user.username }}{% endif %}</title>
+    <title>{{ _('All Bets') }}{% if user %} – {{ user.username }}{% endif %}</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
 <body class="bg-light">
 <div class="container mt-4 mb-5">
 
     <div class="d-flex flex-column flex-sm-row justify-content-sm-between align-items-center mb-4 text-center text-sm-start">
-        <h2 class="mb-0">All Bets</h2>
+        <h2 class="mb-0">{{ _('All Bets') }}</h2>
         <div class="d-flex align-items-center gap-2 mt-2 mt-sm-0">
             {% if user %}
-                <a href="{{ url_for('dashboard', username=user.username) }}" class="btn btn-outline-primary btn-sm">Dashboard</a>
+                <a href="{{ url_for('dashboard', username=user.username) }}" class="btn btn-outline-primary btn-sm">{{ _('Dashboard') }}</a>
             {% else %}
-                <a href="{{ url_for('index') }}" class="btn btn-outline-primary btn-sm">Login</a>
+                <a href="{{ url_for('index') }}" class="btn btn-outline-primary btn-sm">{{ _('Login') }}</a>
             {% endif %}
+            <div class="dropdown">
+                <button class="btn btn-outline-secondary btn-sm dropdown-toggle" data-bs-toggle="dropdown">
+                    {% for l in available_languages %}{% if l.code == lang %}{{ l.flag }}{% endif %}{% endfor %} {{ _('Language') }}
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                    {% for l in available_languages %}
+                        <li><a class="dropdown-item {{ 'active' if l.code == lang }}" href="{{ url_for('set_lang', code=l.code) }}">{{ l.flag }} {{ l.name }}</a></li>
+                    {% endfor %}
+                </ul>
+            </div>
         </div>
     </div>
 
     <div class="card shadow-sm mb-4">
         <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
-            <span>Player Balances</span>
+            <span>{{ _('Player Balances') }}</span>
             <div class="btn-group btn-group-sm" role="group">
                 <input type="radio" class="btn-check" name="balanceMode" id="modeCurrent"
                        value="current" checked autocomplete="off" onchange="applyFilters()">
-                <label class="btn btn-outline-info" for="modeCurrent">Current</label>
+                <label class="btn btn-outline-info" for="modeCurrent">{{ _('Current') }}</label>
                 <input type="radio" class="btn-check" name="balanceMode" id="modePending"
                        value="pending" autocomplete="off" onchange="applyFilters()">
-                <label class="btn btn-outline-info" for="modePending">+ Pending</label>
+                <label class="btn btn-outline-info" for="modePending">{{ _('+ Pending') }}</label>
             </div>
         </div>
         <div class="card-body p-0">
             <div class="table-responsive">
                 <table class="table table-sm table-hover mb-0" id="balancesTable">
                     <thead class="table-light">
-                        <tr><th>Player</th><th class="text-end">Balance</th></tr>
+                        <tr><th>{{ _('Player') }}</th><th class="text-end">{{ _('Balance') }}</th></tr>
                     </thead>
                     <tbody>
                         {% for u in all_users %}
@@ -55,7 +65,7 @@
     </div>
 
     <div class="card shadow-sm mb-4">
-        <div class="card-header bg-dark text-white">Balance Over Time</div>
+        <div class="card-header bg-dark text-white">{{ _('Balance Over Time') }}</div>
         <div class="card-body">
             <canvas id="balanceChart"></canvas>
         </div>
@@ -63,8 +73,8 @@
 
     <div class="card shadow-sm">
         <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
-            <span>Bet History</span>
-            <span class="badge bg-light text-dark">{{ all_bets | length }} bets</span>
+            <span>{{ _('Bet History') }}</span>
+            <span class="badge bg-light text-dark">{{ _('{n} bets', n=all_bets|length) }}</span>
         </div>
         <div class="card-body p-0">
             {% if all_bets %}
@@ -72,13 +82,13 @@
                     <table class="table table-sm table-hover mb-0" id="betsTable">
                         <thead class="table-light">
                             <tr>
-                                <th>When</th>
-                                <th>Better</th>
-                                <th>Match</th>
-                                <th>Bet</th>
-                                <th>Odds</th>
-                                <th class="text-end">Amount</th>
-                                <th>Status</th>
+                                <th>{{ _('When') }}</th>
+                                <th>{{ _('Better') }}</th>
+                                <th>{{ _('Match') }}</th>
+                                <th>{{ _('Bet') }}</th>
+                                <th>{{ _('Odds') }}</th>
+                                <th class="text-end">{{ _('Amount') }}</th>
+                                <th>{{ _('Status') }}</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -93,11 +103,11 @@
                                     <td class="text-end">{{ "%.2f"|format(bet.amount) }} <img src="{{ url_for('static', filename='vp-icon.svg') }}" alt="VP" style="height:1em;vertical-align:middle;"></td>
                                     <td>
                                         {% if not bet.settled %}
-                                            <span class="badge bg-warning text-dark">pending</span>
+                                            <span class="badge bg-warning text-dark">{{ _('pending') }}</span>
                                         {% elif bet.won %}
-                                            <span class="badge bg-success">won</span>
+                                            <span class="badge bg-success">{{ _('won') }}</span>
                                         {% else %}
-                                            <span class="badge bg-secondary">lost</span>
+                                            <span class="badge bg-secondary">{{ _('lost') }}</span>
                                         {% endif %}
                                     </td>
                                 </tr>
@@ -107,13 +117,14 @@
                 </div>
             {% else %}
                 <div class="card-body">
-                    <p class="text-muted mb-0">No bets yet.</p>
+                    <p class="text-muted mb-0">{{ _('No bets yet.') }}</p>
                 </div>
             {% endif %}
         </div>
     </div>
 
 </div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <script>
 var chartDatasetsBalance = {{ chart_datasets_balance | tojson }};
@@ -140,7 +151,6 @@ function applyFilters() {
 
     var src = usePending ? chartDatasetsPending : chartDatasetsBalance;
 
-    // Preserve which users are hidden when switching modes
     var hidden = {};
     if (chartInstance) {
         chartInstance.data.datasets.forEach(function(ds, i) {
@@ -157,7 +167,6 @@ function applyFilters() {
             maintainAspectRatio: true,
             interaction: { mode: 'index', intersect: false },
             onClick: function(e) {
-                // Chart.js handles legend clicks natively
             },
             plugins: {
                 legend: {
@@ -183,7 +192,6 @@ function applyFilters() {
         }
     });
 
-    // Restore hidden state
     chartInstance.data.datasets.forEach(function(ds, i) {
         if (hidden[ds.label]) {
             chartInstance.getDatasetMeta(i).hidden = true;
@@ -191,7 +199,6 @@ function applyFilters() {
     });
     chartInstance.update();
 
-    // Update balance table values
     document.querySelectorAll('#balancesTable .user-row').forEach(function(row) {
         if (row.hidden) return;
         var cell = row.querySelector('.balance-cell');

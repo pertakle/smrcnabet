@@ -1,8 +1,9 @@
 import os
+import json
 import itertools
 import sqlite3
 from datetime import datetime, date, timedelta
-from flask import Flask, render_template, request, redirect, url_for, g, flash
+from flask import Flask, render_template, request, redirect, url_for, g, flash, session
 
 # --- Configuration -----------------------------------------------------------
 # These are hardcoded for now but should be moved to env/config later.
@@ -15,6 +16,96 @@ ELO_BASE = 1500
 
 app = Flask(__name__)
 app.secret_key = "smrcnabet-dev"
+
+
+# --- Translations ------------------------------------------------------------
+
+TRANSLATIONS_DIR = "translations"
+
+
+def _flatten(d):
+    """Recursively flatten a nested dict into a single level."""
+    result = {}
+    for k, v in d.items():
+        if isinstance(v, dict):
+            result.update(_flatten(v))
+        else:
+            result[k] = v
+    return result
+
+
+def load_translations():
+    """Load all translation files from the translations/ directory.
+
+    Each .json file must contain a "_language_name" key for display.
+    Keys starting with "_" are treated as metadata and excluded from lookups.
+    Translation values can be nested in arbitrary sub-dicts for readability;
+    they are flattened into a single-level lookup at load time.
+
+    Returns (languages_dict, available_languages_list).
+    """
+    languages = {}
+    available = []
+    if not os.path.isdir(TRANSLATIONS_DIR):
+        languages["en"] = {}
+        available.append({"code": "en", "name": "English", "flag": "🇬🇧"})
+        return languages, available
+
+    for filename in sorted(os.listdir(TRANSLATIONS_DIR)):
+        if not filename.endswith(".json"):
+            continue
+        code = filename[:-5]
+        filepath = os.path.join(TRANSLATIONS_DIR, filename)
+        try:
+            with open(filepath, encoding="utf-8") as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            continue
+
+        name = data.pop("_language_name", code)
+        flag = data.pop("_flag", "🌐")
+        translations = _flatten({k: v for k, v in data.items() if not k.startswith("_")})
+        languages[code] = translations
+        available.append({"code": code, "name": name, "flag": flag})
+
+    if not languages:
+        languages["en"] = {}
+        available.append({"code": "en", "name": "English", "flag": "🇬🇧"})
+
+    return languages, available
+
+
+LANGUAGES, AVAILABLE_LANGUAGES = load_translations()
+
+
+def _translate(text, **kwargs):
+    lang = session.get("lang", "en") or "en"
+    translations = LANGUAGES.get(lang) or LANGUAGES.get("en", {})
+    translated = translations.get(text, text)
+    if kwargs:
+        return translated.format(**kwargs)
+    return translated
+
+
+@app.context_processor
+def inject_translations():
+    lang = session.get("lang", "en") or "en"
+    js_keys = {"Done", "Delete User", "Cancel Bet",
+               "Delete this match and all related data?",
+               "Delete mode active. Click the ✕ next to a user to permanently delete them and all their bets.",
+               "Cancel mode active. Click the ✕ next to a bet to permanently delete it."}
+    lang_data = LANGUAGES.get(lang, LANGUAGES.get("en", {}))
+    js_translations = {k: v for k, v in lang_data.items() if k in js_keys}
+    return dict(_=_translate, lang=lang, js_translations=js_translations,
+                available_languages=AVAILABLE_LANGUAGES)
+
+
+@app.route("/lang/<code>")
+def set_lang(code):
+    if any(l["code"] == code for l in AVAILABLE_LANGUAGES):
+        session["lang"] = code
+    referrer = request.referrer or url_for("index")
+    return redirect(referrer)
 
 
 # --- Database ----------------------------------------------------------------
@@ -837,7 +928,7 @@ def admin_create_match():
     team_ids = request.form.getlist("team_ids")
 
     if not name:
-        flash("Match name is required", "warning")
+        flash(_translate("Match name is required"), "warning")
         return redirect(url_for("admin", tab="matches"))
 
     if match_date:
@@ -866,7 +957,7 @@ def admin_create_match():
             pass
 
     db.commit()
-    flash(f"Match '{name}' created with {num_teams} team(s)")
+    flash(_translate("Match {name} created with {num_teams} team(s)", name=name, num_teams=num_teams))
     return redirect(url_for("admin", tab="matches"))
 
 
@@ -879,7 +970,7 @@ def admin_add_team(mid):
             db.execute("INSERT INTO playing_teams (match_id, team_id) VALUES (?, ?)", (mid, team_id))
             db.commit()
         except sqlite3.IntegrityError:
-            flash("Team already in match", "warning")
+            flash(_translate("Team already in match"), "warning")
     return redirect(url_for("admin", tab="matches"))
 
 
@@ -903,7 +994,7 @@ def admin_add_position(mid):
             db.execute("INSERT INTO positions (match_id, position_name) VALUES (?, ?)", (mid, position_name))
             db.commit()
         except sqlite3.IntegrityError:
-            flash("Position already exists", "warning")
+            flash(_translate("Position already exists"), "warning")
     return redirect(url_for("admin", tab="matches"))
 
 
@@ -971,7 +1062,8 @@ def admin_set_all_results(mid):
         return redirect(url_for("admin", tab="matches"))
 
     if missing:
-        flash(f"Either give every team a position, or leave all blank to clear. Missing: #{' #'.join(str(m) for m in sorted(missing))}", "warning")
+        missing_str = ' #'.join(str(m) for m in sorted(missing))
+        flash(_translate("Either give every team a position, or leave all blank to clear. Missing: #{teams}", teams=missing_str), "warning")
         return redirect(url_for("admin", tab="matches"))
 
     db.execute("DELETE FROM results WHERE match_id = ?", (mid,))
@@ -1023,7 +1115,7 @@ def admin_add_membership():
                        (player_id, team_id))
             db.commit()
         except sqlite3.IntegrityError:
-            flash("Already a member", "warning")
+            flash(_translate("Already a member"), "warning")
     return redirect(url_for("admin", tab="players"))
 
 
@@ -1045,7 +1137,7 @@ def admin_delete_user(user_id):
     db.execute("DELETE FROM bets WHERE user_id = ?", (user_id,))
     db.execute("DELETE FROM users WHERE id = ?", (user_id,))
     db.commit()
-    flash(f"User #{user_id} and all their bets deleted")
+    flash(_translate("User #{user_id} and all their bets deleted", user_id=user_id))
     return redirect(url_for("admin", tab="users"))
 
 
@@ -1054,7 +1146,7 @@ def admin_cancel_bet(bet_id):
     db = get_db()
     db.execute("DELETE FROM bets WHERE id = ?", (bet_id,))
     db.commit()
-    flash(f"Bet #{bet_id} cancelled")
+    flash(_translate("Bet #{bet_id} cancelled", bet_id=bet_id))
     return redirect(url_for("admin", tab="users"))
 
 
@@ -1069,7 +1161,7 @@ def admin_bulk_players():
     for name in lines:
         db.execute("INSERT OR IGNORE INTO players (name) VALUES (?)", (name,))
     db.commit()
-    flash(f"Created {len(lines)} player(s)")
+    flash(_translate("Created {n} player(s)", n=len(lines)))
     return redirect(url_for("admin", tab="players"))
 
 
@@ -1089,7 +1181,7 @@ def admin_create_team_full():
         except (ValueError, sqlite3.IntegrityError):
             pass
     db.commit()
-    flash(f"Team '{name}' created with {len(player_ids)} member(s)")
+    flash(_translate("Team {name} created with {n} member(s)", name=name, n=len(player_ids)))
     return redirect(url_for("admin", tab="players"))
 
 
