@@ -124,7 +124,7 @@
                     {% if past %}
                         {% for m in past %}
                             <div class="mb-1">
-                                <div class="d-flex align-items-center gap-2"
+                                <div class="d-flex align-items-center gap-2 collapse-toggle"
                                      role="button" data-bs-toggle="collapse"
                                      data-bs-target="#past-detail-{{ loop.index }}"
                                      style="cursor:pointer">
@@ -135,7 +135,7 @@
                                     {% else %}
                                         <span class="badge bg-warning text-dark">pending</span>
                                     {% endif %}
-                                    <small class="text-muted ms-auto">show</small>
+                                    <small class="text-muted ms-auto collapse-label" >show</small>
                                 </div>
                                 <div class="collapse ms-3" id="past-detail-{{ loop.index }}">
                                     {% if m.has_results %}
@@ -226,6 +226,13 @@ function validateAmount(input) {
 
 document.getElementById('betModal').addEventListener('hidden.bs.modal', function() {
     document.querySelectorAll('.badge-selected').forEach(function(el) { el.classList.remove('badge-selected'); });
+});
+
+document.querySelectorAll('.collapse').forEach(function(el) {
+    var label = el.closest('.mb-1').querySelector('.collapse-label');
+    if (!label) return;
+    el.addEventListener('show.bs.collapse', function() { label.textContent = 'hide'; });
+    el.addEventListener('hide.bs.collapse', function() { label.textContent = 'show'; });
 });
 </script>
 </body>
