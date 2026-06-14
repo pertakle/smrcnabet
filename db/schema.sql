@@ -66,6 +66,7 @@ CREATE TABLE bets (
     team_id INTEGER NOT NULL,
     position_name TEXT NOT NULL,
     amount INTEGER NOT NULL,
+    course REAL NOT NULL,
     time DATETIME NOT NULL DEFAULT (datetime('now')),
 
     FOREIGN KEY (user_id) REFERENCES users(id),

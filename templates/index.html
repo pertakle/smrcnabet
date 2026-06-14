@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Betting App Login</title>
 
     <!-- Bootstrap -->
@@ -9,15 +10,19 @@
 
     <style>
         body {
-            height: 100vh;
+            min-height: 100dvh;
             background: linear-gradient(135deg, #1e3c72, #2a5298);
         }
     </style>
 </head>
 
-<body class="d-flex align-items-center justify-content-center">
+<body class="d-flex align-items-center justify-content-center position-relative">
 
-<div class="card shadow-lg p-4" style="width: 400px; border-radius: 15px;">
+<div class="position-absolute top-0 end-0 m-2 m-sm-3">
+    <a href="{{ url_for('allbets_public') }}" class="btn btn-sm btn-outline-light border-0">All Bets</a>
+</div>
+
+<div class="card shadow-lg p-3 p-sm-4 mx-2 mx-sm-3" style="max-width: 400px; width: 100%; border-radius: 15px;">
 
     <div class="text-center mb-4">
         <h2 class="fw-bold">Betting App</h2>

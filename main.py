@@ -1,6 +1,7 @@
 import os
 import itertools
 import sqlite3
+from datetime import datetime, date, timedelta
 from flask import Flask, render_template, request, redirect, url_for, g, flash
 
 # --- Configuration -----------------------------------------------------------
@@ -230,7 +231,7 @@ def _compute_user_balance(user_id):
     balance -= total_bet
 
     winning = db.execute("""
-        SELECT b.amount, b.match_id, b.team_id, b.position_name, b.time
+        SELECT b.amount, b.course
         FROM bets b
         JOIN results r ON r.match_id = b.match_id
                       AND r.team_id = b.team_id
@@ -239,10 +240,7 @@ def _compute_user_balance(user_id):
     """, (user_id,)).fetchall()
 
     for bet in winning:
-        course = course_at_time(
-            bet["match_id"], bet["team_id"], bet["position_name"], bet["time"],
-        )
-        balance += bet["amount"] * (course if course is not None else 0)
+        balance += bet["amount"] * (bet["course"] if bet["course"] is not None else 0)
 
     return balance
 
@@ -277,27 +275,50 @@ def dashboard(username):
     p_ratings = compute_player_ratings()
     t_ratings = team_ratings(p_ratings)
 
-    # Upcoming = matches without results yet
+    now_str = datetime.now().strftime("%Y-%m-%dT%H:%M")
+
+    # Upcoming = matches without results, before match time
     upcoming_rows = db.execute(
         "SELECT * FROM matches "
-        "WHERE id NOT IN (SELECT DISTINCT match_id FROM results)"
+        "WHERE id NOT IN (SELECT DISTINCT match_id FROM results) "
+        "  AND time > ?",
+        (now_str,),
     ).fetchall()
     upcoming = []
     for m in upcoming_rows:
         cs = courses_for_match(m["id"], t_ratings)
         pos_names = sorted({c["position_name"] for c in cs})
+
+        seen = set()
+        teams = []
+        for c in cs:
+            if c["team_id"] not in seen:
+                seen.add(c["team_id"])
+                rows = db.execute(
+                    "SELECT p.name FROM members mp "
+                    "JOIN players p ON p.id = mp.player_id "
+                    "WHERE mp.team_id = ?",
+                    (c["team_id"],),
+                ).fetchall()
+                teams.append({
+                    "team_id": c["team_id"],
+                    "team_name": c["team_name"],
+                    "players": [r["name"] for r in rows],
+                })
+
         upcoming.append({
             "match": m,
             "courses": cs,
+            "teams": teams,
             "position_names": pos_names,
         })
 
-    # Past = matches that DO have results
+    # Past = all matches past their time or with results
     past_rows = db.execute("""
-        SELECT DISTINCT m.id, m.name, m.time
-        FROM matches m JOIN results r ON r.match_id = m.id
-        ORDER BY m.time DESC
-    """).fetchall()
+        SELECT id, name, time FROM matches
+        WHERE time <= ? OR id IN (SELECT DISTINCT match_id FROM results)
+        ORDER BY time DESC
+    """, (now_str,)).fetchall()
     past = []
     for m in past_rows:
         rs = db.execute("""
@@ -305,11 +326,34 @@ def dashboard(username):
             FROM results r JOIN teams t ON t.id = r.team_id
             WHERE r.match_id = ?
         """, (m["id"],)).fetchall()
-        past.append({"match": m, "results": rs})
+        has_results = bool(rs)
+        entry = {"match": m, "results": rs, "has_results": has_results}
+        if not has_results:
+            cs = courses_for_match(m["id"], t_ratings)
+            seen = set()
+            teams = []
+            for c in cs:
+                if c["team_id"] not in seen:
+                    seen.add(c["team_id"])
+                    rows = db.execute(
+                        "SELECT p.name FROM members mp "
+                        "JOIN players p ON p.id = mp.player_id "
+                        "WHERE mp.team_id = ?",
+                        (c["team_id"],),
+                    ).fetchall()
+                    teams.append({
+                        "team_id": c["team_id"],
+                        "team_name": c["team_name"],
+                        "players": [r["name"] for r in rows],
+                    })
+            entry["courses"] = cs
+            entry["teams"] = teams
+            entry["position_names"] = sorted({c["position_name"] for c in cs})
+        past.append(entry)
 
     # Open bets = bets on matches without results
     open_bets = db.execute("""
-        SELECT b.id, b.amount, b.time,
+        SELECT b.id, b.amount, b.time, b.course,
                b.match_id, b.team_id, b.position_name,
                m.name AS match_name, t.name AS team_name
         FROM bets b
@@ -318,15 +362,6 @@ def dashboard(username):
         WHERE b.user_id = ?
           AND m.id NOT IN (SELECT DISTINCT match_id FROM results)
     """, (user["id"],)).fetchall()
-
-    # Compute course for each open bet from historical ratings
-    open_bets_with_course = []
-    for bet in open_bets:
-        course = course_at_time(
-            bet["match_id"], bet["team_id"], bet["position_name"], bet["time"],
-            p_ratings, t_ratings,
-        )
-        open_bets_with_course.append({**bet, "course": course})
 
     # Computed balance
     computed_balance = _compute_user_balance(user["id"])
@@ -345,24 +380,25 @@ def dashboard(username):
         computed_balance=computed_balance,
         upcoming=upcoming,
         past=past,
-        open_bets=open_bets_with_course,
+        open_bets=open_bets,
         leaderboard=leaderboard,
     )
 
 
 @app.route("/bet/<username>", methods=["POST"])
 def place_bet(username):
-    match_id = request.form.get("match_id", type=int)
     selection = request.form.get("selection")
     amount = request.form.get("amount", type=float)
 
-    if not all([match_id, selection, amount]) or amount <= 0:
+    if not selection or not amount or amount <= 0:
         return redirect(url_for("dashboard", username=username))
 
     try:
-        team_id_str, position_name = selection.split(":", 1)
-        team_id = int(team_id_str)
-    except (ValueError, TypeError):
+        parts = selection.split(":")
+        team_id = int(parts[0])
+        position_name = parts[1]
+        match_id = int(parts[2])
+    except (ValueError, IndexError):
         return redirect(url_for("dashboard", username=username))
 
     db = get_db()
@@ -371,17 +407,179 @@ def place_bet(username):
     if not user:
         return redirect(url_for("index"))
 
+    now_str = datetime.now().strftime("%Y-%m-%dT%H:%M")
+    match = db.execute(
+        "SELECT * FROM matches WHERE id = ? AND time > ? "
+        "AND id NOT IN (SELECT DISTINCT match_id FROM results)",
+        (match_id, now_str),
+    ).fetchone()
+    if not match:
+        return redirect(url_for("dashboard", username=username))
+
     balance = _compute_user_balance(user["id"])
     if amount > balance:
         return redirect(url_for("dashboard", username=username))
 
+    p_ratings = compute_player_ratings()
+    t_ratings = team_ratings(p_ratings)
+    cs = courses_for_match(match_id, t_ratings)
+    course = None
+    for c in cs:
+        if c["team_id"] == team_id and c["position_name"] == position_name:
+            course = c["course"]
+            break
+
     db.execute(
-        "INSERT INTO bets (user_id, match_id, team_id, position_name, amount) "
-        "VALUES (?, ?, ?, ?, ?)",
-        (user["id"], match_id, team_id, position_name, amount),
+        "INSERT INTO bets (user_id, match_id, team_id, position_name, amount, course) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (user["id"], match_id, team_id, position_name, amount, course),
     )
     db.commit()
     return redirect(url_for("dashboard", username=username))
+
+
+# ============================================================
+# All Bets
+# ============================================================
+
+
+def _allbets_data():
+    """Shared data for the allbets page (balances, bet history, chart)."""
+    db = get_db()
+
+    all_users = []
+    for u in db.execute("SELECT * FROM users ORDER BY username").fetchall():
+        balance = _compute_user_balance(u["id"])
+        pending = db.execute(
+            "SELECT COALESCE(SUM(b.amount), 0) "
+            "FROM bets b WHERE b.user_id = ? "
+            "AND b.match_id NOT IN (SELECT DISTINCT match_id FROM results)",
+            (u["id"],),
+        ).fetchone()[0]
+        all_users.append({"username": u["username"], "balance": balance, "balance_pending": balance + pending})
+
+    all_bets_raw = db.execute("""
+        SELECT b.id, b.amount, b.time, b.course,
+               b.match_id, b.team_id, b.position_name,
+               u.username AS bettor,
+               m.name AS match_name, m.time AS match_time,
+               t.name AS team_name,
+               EXISTS (SELECT 1 FROM results WHERE match_id = b.match_id) AS settled,
+               EXISTS (SELECT 1 FROM results
+                       WHERE match_id = b.match_id AND team_id = b.team_id
+                       AND position_name = b.position_name) AS won
+        FROM bets b
+        JOIN users u ON u.id = b.user_id
+        JOIN matches m ON m.id = b.match_id
+        JOIN teams t  ON t.id = b.team_id
+        ORDER BY b.time DESC
+    """).fetchall()
+
+    bets = list(all_bets_raw)
+
+    # --- Chart data ---
+    chart_bets = db.execute("""
+        SELECT b.id, b.user_id, b.amount, b.time AS bet_time, b.course,
+               b.match_id, b.team_id, b.position_name,
+               m.time AS match_time
+        FROM bets b
+        JOIN matches m ON m.id = b.match_id
+        ORDER BY b.time
+    """).fetchall()
+
+    settled_matches = {
+        row["match_id"]
+        for row in db.execute("SELECT DISTINCT match_id FROM results").fetchall()
+    }
+    won_bets = {
+        (row["match_id"], row["team_id"], row["position_name"])
+        for row in db.execute("SELECT match_id, team_id, position_name FROM results").fetchall()
+    }
+
+    bet_courses = {bet["id"]: bet["course"] for bet in chart_bets}
+
+    all_times = [bet["bet_time"] for bet in chart_bets] + \
+                [bet["match_time"] for bet in chart_bets]
+    if all_times:
+        min_date = datetime.strptime(min(all_times)[:10], "%Y-%m-%d").date()
+    else:
+        min_date = date.today()
+    max_date = date.today()
+
+    chart_labels = []
+    d = min_date
+    while d <= max_date:
+        chart_labels.append(d.isoformat())
+        d += timedelta(days=1)
+
+    raw_users = db.execute("SELECT * FROM users ORDER BY username").fetchall()
+    chart_datasets_balance = []
+    chart_datasets_pending = []
+    palette = ["#0d6efd", "#dc3545", "#198754", "#ffc107", "#6f42c1", "#fd7e14",
+               "#20c997", "#e83e8c", "#6610f2", "#17a2b8"]
+    for idx, u in enumerate(raw_users):
+        uid = u["id"]
+        user_bets = [b for b in chart_bets if b["user_id"] == uid]
+        points_balance = []
+        points_pending = []
+        for ds in chart_labels:
+            effective_balance = 100
+            effective_pending = 100
+            for b in user_bets:
+                if b["bet_time"][:10] > ds:
+                    continue
+                effective_balance -= b["amount"]
+                has_result = b["match_id"] in settled_matches
+                if has_result and b["match_time"][:10] <= ds:
+                    if (b["match_id"], b["team_id"], b["position_name"]) in won_bets:
+                        c = bet_courses.get(b["id"], 1)
+                        payout = b["amount"] * c
+                        effective_balance += payout
+                        effective_pending += payout
+                    else:
+                        effective_pending -= b["amount"]
+                # pending: stake not subtracted from pending mode
+            points_balance.append(round(effective_balance, 2))
+            points_pending.append(round(effective_pending, 2))
+        color = palette[idx % len(palette)]
+        chart_datasets_balance.append({
+            "label": u["username"],
+            "data": points_balance,
+            "borderColor": color,
+            "backgroundColor": color + "22",
+            "tension": 0.3,
+        })
+        chart_datasets_pending.append({
+            "label": u["username"],
+            "data": points_pending,
+            "borderColor": color,
+            "backgroundColor": color + "22",
+            "tension": 0.3,
+        })
+
+    return {
+        "all_users": all_users,
+        "all_bets": bets,
+        "chart_labels": chart_labels,
+        "chart_datasets_balance": chart_datasets_balance,
+        "chart_datasets_pending": chart_datasets_pending,
+    }
+
+
+@app.route("/allbets")
+def allbets_public():
+    return render_template("allbets.html", user=None, **_allbets_data())
+
+
+@app.route("/allbets/<username>")
+def allbets(username):
+    db = get_db()
+    user = db.execute("SELECT * FROM users WHERE username = ?",
+                      (username,)).fetchone()
+    if not user:
+        return redirect(url_for("index"))
+    return render_template("allbets.html", user=user, **_allbets_data())
+
 
 
 # ============================================================
@@ -389,14 +587,22 @@ def place_bet(username):
 # ============================================================
 
 def _admin_context(match_sort="time", match_order="desc", match_status="",
-                   match_team=None, match_player=None, active_tab="players"):
+                   match_team=None, match_player=None, active_tab="players",
+                   bet_user=None, bet_status="",
+                   bet_sort="time", bet_order="desc"):
     db = get_db()
+
+    now_str = datetime.now().strftime("%Y-%m-%dT%H:%M")
 
     # --- Match filtering ---
     where = []
     params = []
     if match_status == "upcoming":
-        where.append("m.id NOT IN (SELECT DISTINCT match_id FROM results)")
+        where.append("m.id NOT IN (SELECT DISTINCT match_id FROM results) AND m.time > ?")
+        params.append(now_str)
+    elif match_status == "pending":
+        where.append("m.id NOT IN (SELECT DISTINCT match_id FROM results) AND m.time <= ?")
+        params.append(now_str)
     elif match_status == "finished":
         where.append("m.id IN (SELECT DISTINCT match_id FROM results)")
     if match_team:
@@ -441,6 +647,7 @@ def _admin_context(match_sort="time", match_order="desc", match_status="",
             "has_results": bool(
                 db.execute("SELECT 1 FROM results WHERE match_id = ?", (m["id"],)).fetchone()
             ),
+            "has_passed": m["time"] <= now_str,
         })
 
     # --- Players & Teams ---
@@ -476,19 +683,51 @@ def _admin_context(match_sort="time", match_order="desc", match_status="",
             "bet_count": u["bet_count"],
         })
 
-    # --- Open bets (bets on matches without results) ---
-    open_raw = db.execute(
-        "SELECT b.id, b.amount, b.time, b.match_id, b.team_id, b.position_name, "
-        "u.username, m.name AS match_name, t.name AS team_name "
-        "FROM bets b JOIN users u ON u.id = b.user_id "
-        "JOIN matches m ON m.id = b.match_id "
-        "JOIN teams t ON t.id = b.team_id "
-        "WHERE m.id NOT IN (SELECT DISTINCT match_id FROM results)"
-    ).fetchall()
-    open_bets = []
-    for b in open_raw:
-        course = course_at_time(b["match_id"], b["team_id"], b["position_name"], b["time"])
-        open_bets.append({**b, "course": course})
+    # --- All bets (with filters) ---
+    bet_where = []
+    bet_params = []
+    if bet_user:
+        bet_where.append("b.user_id = ?")
+        bet_params.append(bet_user)
+    if bet_status == "open":
+        bet_where.append("b.match_id NOT IN (SELECT DISTINCT match_id FROM results)")
+    elif bet_status == "won":
+        bet_where.append(
+            "b.match_id IN (SELECT match_id FROM results) "
+            "AND EXISTS (SELECT 1 FROM results r2 "
+            "WHERE r2.match_id = b.match_id AND r2.team_id = b.team_id "
+            "AND r2.position_name = b.position_name)"
+        )
+    elif bet_status == "lost":
+        bet_where.append(
+            "b.match_id IN (SELECT DISTINCT match_id FROM results) "
+            "AND NOT EXISTS (SELECT 1 FROM results r2 "
+            "WHERE r2.match_id = b.match_id AND r2.team_id = b.team_id "
+            "AND r2.position_name = b.position_name)"
+        )
+    bet_where_sql = " AND ".join(bet_where) if bet_where else "1=1"
+
+    bet_order_col = {"time": "b.time", "amount": "b.amount", "course": "b.course", "user": "u.username", "match": "m.name"}.get(bet_sort, "b.time")
+    bet_order_dir = "ASC" if bet_order == "asc" else "DESC"
+
+    all_bets = db.execute(f"""
+        SELECT b.id, b.amount, b.time, b.course, b.match_id, b.team_id, b.position_name,
+               u.id AS user_id, u.username,
+               m.name AS match_name, m.time AS match_time,
+               t.name AS team_name,
+               EXISTS (SELECT 1 FROM results WHERE match_id = b.match_id) AS settled,
+               EXISTS (SELECT 1 FROM results r2
+                       WHERE r2.match_id = b.match_id AND r2.team_id = b.team_id
+                       AND r2.position_name = b.position_name) AS won
+        FROM bets b
+        JOIN users u ON u.id = b.user_id
+        JOIN matches m ON m.id = b.match_id
+        JOIN teams t ON t.id = b.team_id
+        WHERE {bet_where_sql}
+        ORDER BY {bet_order_col} {bet_order_dir}
+    """, bet_params).fetchall()
+
+    open_bets = [b for b in all_bets if not b["settled"]]
 
     total_matches = db.execute("SELECT COUNT(*) FROM matches").fetchone()[0]
 
@@ -500,11 +739,16 @@ def _admin_context(match_sort="time", match_order="desc", match_status="",
         "players": all_players,
         "users": users,
         "open_bets": open_bets,
+        "all_bets": all_bets,
         "filter_sort": match_sort,
         "filter_order": match_order,
         "filter_status": match_status,
         "filter_team": match_team,
         "filter_player": match_player,
+        "filter_bet_user": bet_user,
+        "filter_bet_status": bet_status,
+        "filter_bet_sort": bet_sort,
+        "filter_bet_order": bet_order,
         "active_tab": active_tab,
     }
 
@@ -524,17 +768,31 @@ def admin():
     status = request.args.get("status", "")
     team = request.args.get("team", type=int)
     player = request.args.get("player", type=int)
+    bet_user = request.args.get("bet_user", type=int)
+    bet_status = request.args.get("bet_status", "")
+    bet_sort_by = request.args.get("bet_sort_by", "")
+    if bet_sort_by and "|" in bet_sort_by:
+        bet_sort, bet_order = bet_sort_by.split("|", 1)
+    else:
+        bet_sort = request.args.get("bet_sort", "time")
+        bet_order = request.args.get("bet_order", "desc")
 
     if sort not in ("time", "name"):
         sort = "time"
     if order not in ("asc", "desc"):
         order = "desc"
-    if status not in ("", "upcoming", "finished"):
+    if status not in ("", "upcoming", "pending", "finished"):
         status = ""
+    if bet_status not in ("", "open", "won", "lost"):
+        bet_status = ""
+    if bet_sort not in ("time", "amount", "course", "user", "match"):
+        bet_sort = "time"
+    if bet_order not in ("asc", "desc"):
+        bet_order = "desc"
 
     return render_template(
         "admin.html",
-        **_admin_context(sort, order, status, team, player, active_tab),
+        **_admin_context(sort, order, status, team, player, active_tab, bet_user, bet_status, bet_sort, bet_order),
         sql_result=None,
         sql_error=None,
     )
@@ -582,11 +840,11 @@ def admin_create_match():
         flash("Match name is required", "warning")
         return redirect(url_for("admin", tab="matches"))
 
-    from datetime import datetime
     if match_date:
-        time = f"{match_date}T{match_time or '20:00'}"
+        time = f"{match_date}T{match_time or '06:00'}"
     else:
-        time = datetime.now().strftime("%Y-%m-%dT%H:%M")
+        tomorrow = date.today() + timedelta(days=1)
+        time = f"{tomorrow}T06:00"
 
     db = get_db()
     cur = db.execute("INSERT INTO matches (name, time) VALUES (?, ?)", (name, time))
@@ -660,13 +918,25 @@ def admin_remove_position(mid):
     return redirect(url_for("admin", tab="matches"))
 
 
+@app.route("/admin/match/<int:mid>/edit_time", methods=["POST"])
+def admin_edit_match_time(mid):
+    match_date = request.form.get("match_date", "").strip()
+    match_time = request.form.get("match_time", "").strip()
+    if match_date:
+        db = get_db()
+        new_time = f"{match_date}T{match_time or '06:00'}"
+        db.execute("UPDATE matches SET time = ? WHERE id = ?", (new_time, mid))
+        db.commit()
+    return redirect(url_for("admin", tab="matches"))
+
+
 @app.route("/admin/match/<int:mid>/delete", methods=["POST"])
 def admin_delete_match(mid):
     db = get_db()
+    db.execute("DELETE FROM bets WHERE match_id = ?", (mid,))
     db.execute("DELETE FROM results WHERE match_id = ?", (mid,))
     db.execute("DELETE FROM positions WHERE match_id = ?", (mid,))
     db.execute("DELETE FROM playing_teams WHERE match_id = ?", (mid,))
-    db.execute("DELETE FROM bets WHERE match_id = ?", (mid,))
     db.execute("DELETE FROM matches WHERE id = ?", (mid,))
     db.commit()
     return redirect(url_for("admin", tab="matches"))
@@ -767,6 +1037,25 @@ def admin_remove_membership():
                    (player_id, team_id))
         db.commit()
     return redirect(url_for("admin", tab="players"))
+
+
+@app.route("/admin/user/<int:user_id>/delete", methods=["POST"])
+def admin_delete_user(user_id):
+    db = get_db()
+    db.execute("DELETE FROM bets WHERE user_id = ?", (user_id,))
+    db.execute("DELETE FROM users WHERE id = ?", (user_id,))
+    db.commit()
+    flash(f"User #{user_id} and all their bets deleted")
+    return redirect(url_for("admin", tab="users"))
+
+
+@app.route("/admin/bet/<int:bet_id>/cancel", methods=["POST"])
+def admin_cancel_bet(bet_id):
+    db = get_db()
+    db.execute("DELETE FROM bets WHERE id = ?", (bet_id,))
+    db.commit()
+    flash(f"Bet #{bet_id} cancelled")
+    return redirect(url_for("admin", tab="users"))
 
 
 # --- Bulk & convenience admin routes ----------------------------------------

@@ -257,6 +257,7 @@
                                     onchange="document.getElementById('filter-form').submit()">
                                 <option value="">All matches</option>
                                 <option value="upcoming" {{ 'selected' if filter_status == 'upcoming' }}>Upcoming</option>
+                                <option value="pending" {{ 'selected' if filter_status == 'pending' }}>Pending</option>
                                 <option value="finished" {{ 'selected' if filter_status == 'finished' }}>Finished</option>
                             </select>
                         </div>
@@ -317,11 +318,10 @@
                             </div>
                             <div class="col-md-3">
                                 <input type="date" name="match_date" class="form-control">
-                                <small class="text-muted">Date (empty = today)</small>
+                                <small class="text-muted">Date (empty = tomorrow)</small>
                             </div>
                             <div class="col-md-3">
-                                <input type="time" name="match_time" class="form-control" value="20:00">
-                                <small class="text-muted">Time (optional)</small>
+                                <input type="time" name="match_time" class="form-control" value="06:00">
                             </div>
                             <div class="col-md-2 d-grid">
                                 <button type="submit" class="btn btn-primary">Create</button>
@@ -353,23 +353,39 @@
             <!-- Match list -->
             {% if matches %}
                 {% for md in matches %}
-                    <div class="card mb-2">
+                    <div class="card mb-2 overflow-hidden">
                         <div class="card-header d-flex flex-wrap align-items-center gap-2
-                                    {{ 'bg-secondary' if md.has_results else '' }}">
+                                    {{ 'bg-dark' if md.has_results else 'bg-secondary' }}"
+                             role="button" data-bs-toggle="collapse"
+                             data-bs-target="#match-body-{{ md.match.id }}"
+                             style="cursor:pointer">
                             <strong>{{ md.match.name }}</strong>
-                            <span class="small text-muted">{{ md.match.time }}</span>
+                            <span class="small text-muted me-1">{{ md.match.time }}</span>
+                            <button class="btn btn-sm btn-outline-light py-0 px-1"
+                                    data-bs-toggle="modal" data-bs-target="#editTimeModal"
+                                    data-action="{{ url_for('admin_edit_match_time', mid=md.match.id) }}"
+                                    data-date="{{ md.match.time[:10] }}"
+                                    data-time="{{ md.match.time[11:] }}"
+                                    title="Edit time" onclick="event.stopPropagation()">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>
+                                    </svg></button>
                             {% if md.has_results %}
                                 <span class="badge bg-success">results in</span>
+                            {% elif md.has_passed %}
+                                <span class="badge bg-warning text-dark">pending</span>
                             {% else %}
-                                <span class="badge bg-warning text-dark">upcoming</span>
+                                <span class="badge bg-info text-white">upcoming</span>
                             {% endif %}
                             <div class="ms-auto">
-                                <form method="POST" action="{{ url_for('admin_delete_match', mid=md.match.id) }}" class="d-inline">
+                                <form method="POST" action="{{ url_for('admin_delete_match', mid=md.match.id) }}" class="d-inline"
+                                      onclick="event.stopPropagation()">
                                     <button class="btn btn-outline-danger btn-sm"
                                             onclick="return confirm('Delete this match and all related data?')">Delete</button>
                                 </form>
                             </div>
                         </div>
+                        <div class="collapse" id="match-body-{{ md.match.id }}">
                         <div class="card-body py-2">
                             {% if md.teams and md.positions %}
                                 <form id="save-results-{{ md.match.id }}" method="POST"
@@ -418,6 +434,7 @@
                                 <small class="text-muted">No teams</small>
                             {% endif %}
                         </div>
+                        </div>
                     </div>
                 {% endfor %}
             {% else %}
@@ -432,11 +449,18 @@
         <!-- ======================================================== -->
         <div class="tab-pane {{ 'show active' if active_tab == 'users' }}" id="tab-users">
             <div class="card">
-                <div class="card-header">Users</div>
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span>Users</span>
+                    <button class="btn btn-outline-danger btn-sm" id="deleteUserBtn"
+                            onclick="toggleDeleteMode()">Delete User</button>
+                </div>
                 <div class="card-body">
+                    <div id="deleteWarning" class="alert alert-danger py-2 small" hidden>
+                        <strong>⚠ Delete mode active.</strong> Click the <b>✕</b> next to a user to permanently delete them and all their bets.
+                    </div>
                     {% if users %}
                         <table class="table table-sm">
-                            <thead><tr><th>ID</th><th>Username</th><th>Balance</th><th>Bets</th></tr></thead>
+                            <thead><tr><th>ID</th><th>Username</th><th>Balance</th><th>Bets</th><th class="delete-col" hidden></th></tr></thead>
                             <tbody>
                                 {% for u in users %}
                                     <tr>
@@ -444,6 +468,14 @@
                                         <td>{{ u.username }}</td>
                                         <td>${{ "%.2f"|format(u.balance) }}</td>
                                         <td>{{ u.bet_count }}</td>
+                                        <td class="delete-col" hidden>
+                                            <form method="POST"
+                                                  action="{{ url_for('admin_delete_user', user_id=u.id) }}"
+                                                  onsubmit="return confirm('⚠ Permanently delete user «{{ u.username }}» (#{{ u.id }}) and all their bets? This cannot be undone.')"
+                                                  class="d-inline">
+                                                <button class="btn btn-outline-danger btn-sm py-0 px-1">&times;</button>
+                                            </form>
+                                        </td>
                                     </tr>
                                 {% endfor %}
                             </tbody>
@@ -454,29 +486,99 @@
                 </div>
             </div>
 
-            <!-- Open bets (matches without results) -->
+            <!-- All bets -->
             <div class="card mt-3">
-                <div class="card-header">Open Bets ({{ open_bets|length }})</div>
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span>All Bets ({{ all_bets|length }})</span>
+                    <button class="btn btn-outline-danger btn-sm" id="cancelBetBtn"
+                            onclick="toggleCancelBetMode()">Cancel Bet</button>
+                </div>
                 <div class="card-body">
-                    {% if open_bets %}
-                        <div style="max-height:300px; overflow:auto;">
+                    <form method="GET" action="{{ url_for('admin') }}" class="row g-2 align-items-end mb-2"
+                          id="bet-filter-form">
+                        <input type="hidden" name="tab" value="users">
+                        <div class="col-auto">
+                            <select name="bet_user" class="form-select form-select-sm"
+                                    onchange="document.getElementById('bet-filter-form').submit()">
+                                <option value="">All users</option>
+                                {% for u in users %}
+                                    <option value="{{ u.id }}" {{ 'selected' if filter_bet_user == u.id }}>{{ u.username }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-auto">
+                            <select name="bet_status" class="form-select form-select-sm"
+                                    onchange="document.getElementById('bet-filter-form').submit()">
+                                <option value="">All status</option>
+                                <option value="open" {{ 'selected' if filter_bet_status == 'open' }}>Open</option>
+                                <option value="won" {{ 'selected' if filter_bet_status == 'won' }}>Won</option>
+                                <option value="lost" {{ 'selected' if filter_bet_status == 'lost' }}>Lost</option>
+                            </select>
+                        </div>
+                        <div class="col-auto">
+                            <select name="bet_sort_by" class="form-select form-select-sm"
+                                    onchange="document.getElementById('bet-filter-form').submit()">
+                                {% set cur = filter_bet_sort + '|' + filter_bet_order %}
+                                <option value="time|desc" {{ 'selected' if cur == 'time|desc' }}>Date ↓</option>
+                                <option value="time|asc" {{ 'selected' if cur == 'time|asc' }}>Date ↑</option>
+                                <option value="amount|desc" {{ 'selected' if cur == 'amount|desc' }}>Amount ↓</option>
+                                <option value="amount|asc" {{ 'selected' if cur == 'amount|asc' }}>Amount ↑</option>
+                                <option value="course|desc" {{ 'selected' if cur == 'course|desc' }}>Course ↓</option>
+                                <option value="course|asc" {{ 'selected' if cur == 'course|asc' }}>Course ↑</option>
+                                <option value="user|asc" {{ 'selected' if cur == 'user|asc' }}>User A→Z</option>
+                                <option value="user|desc" {{ 'selected' if cur == 'user|desc' }}>User Z→A</option>
+                                <option value="match|asc" {{ 'selected' if cur == 'match|asc' }}>Match A→Z</option>
+                                <option value="match|desc" {{ 'selected' if cur == 'match|desc' }}>Match Z→A</option>
+                            </select>
+                        </div>
+                        {% if filter_bet_user or filter_bet_status or cur != 'time|desc' %}
+                            <small class="text-muted">
+                                {{ all_bets|length }} bet{{ 's' if all_bets|length != 1 }}
+                                <a href="{{ url_for('admin', tab='users') }}" class="ms-2 text-decoration-none">&times; clear</a>
+                            </small>
+                        {% endif %}
+                    </form>
+
+                    <div id="cancelBetWarning" class="alert alert-danger py-2 small" hidden>
+                        <strong>⚠ Cancel mode active.</strong> Click the <b>✕</b> next to a bet to permanently delete it.
+                    </div>
+                    {% if all_bets %}
+                        <div style="max-height:400px; overflow:auto;">
                             <table class="table table-sm">
-                                <thead><tr><th>User</th><th>Amount</th><th>Course</th><th>Match</th><th>Bet</th></tr></thead>
+                                <thead><tr><th>Time</th><th>User</th><th>Amount</th><th>Course</th><th>Match</th><th>Bet</th><th>Status</th><th class="cancel-bet-col" hidden></th></tr></thead>
                                 <tbody>
-                                    {% for b in open_bets %}
+                                    {% for b in all_bets %}
                                         <tr>
+                                            <td class="text-nowrap small">{{ b.time }}</td>
                                             <td>{{ b.username }}</td>
                                             <td>${{ "%.0f"|format(b.amount) }}</td>
                                             <td>{{ b.course }}</td>
                                             <td>{{ b.match_name }}</td>
                                             <td>#{{ b.team_id }} {{ b.team_name }} – {{ b.position_name }}</td>
+                                            <td>
+                                                {% if not b.settled %}
+                                                    <span class="badge bg-warning text-dark">open</span>
+                                                {% elif b.won %}
+                                                    <span class="badge bg-success">won</span>
+                                                {% else %}
+                                                    <span class="badge bg-secondary">lost</span>
+                                                {% endif %}
+                                            </td>
+                                            <td class="cancel-bet-col" hidden>
+                                                <form method="POST" action="{{ url_for('admin_cancel_bet', bet_id=b.id) }}"
+                                                      onsubmit="return confirm('Cancel bet #{{ b.id }} ({{ b.username }}, ${{ '%.0f'|format(b.amount) }})?')"
+                                                      class="d-inline">
+                                                    <button class="btn btn-outline-danger btn-sm py-0 px-1"
+                                                            title="Cancel bet">&times;</button>
+                                                </form>
+                                            </td>
                                         </tr>
                                     {% endfor %}
                                 </tbody>
                             </table>
                         </div>
                     {% else %}
-                        <p class="text-muted">No open bets.</p>
+                        <p class="text-muted">No bets match your filters.</p>
                     {% endif %}
                 </div>
             </div>
@@ -541,6 +643,68 @@
             history.replaceState(null, '', url);
         });
     });
+
+    function toggleDeleteMode() {
+        const cols = document.querySelectorAll('.delete-col');
+        const warn = document.getElementById('deleteWarning');
+        const btn = document.getElementById('deleteUserBtn');
+        const on = cols[0] && cols[0].hidden;
+        cols.forEach(c => c.hidden = !on);
+        warn.hidden = !on;
+        btn.classList.toggle('btn-outline-danger', !on);
+        btn.classList.toggle('btn-danger', on);
+        btn.textContent = on ? 'Done' : 'Delete User';
+    }
+
+    function toggleCancelBetMode() {
+        const cols = document.querySelectorAll('.cancel-bet-col');
+        const warn = document.getElementById('cancelBetWarning');
+        const btn = document.getElementById('cancelBetBtn');
+        const on = cols[0] && cols[0].hidden;
+        cols.forEach(c => c.hidden = !on);
+        warn.hidden = !on;
+        btn.classList.toggle('btn-outline-danger', !on);
+        btn.classList.toggle('btn-danger', on);
+        btn.textContent = on ? 'Done' : 'Cancel Bet';
+    }
+
+</script>
+
+<!-- Edit Time Modal -->
+<div class="modal fade" id="editTimeModal" tabindex="-1">
+    <div class="modal-dialog modal-sm modal-dialog-centered">
+        <div class="modal-content">
+            <form method="POST" action="" id="editTimeForm">
+                <div class="modal-header">
+                    <h6 class="modal-title">Edit Match Time</h6>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-2">
+                        <label class="form-label small">Date</label>
+                        <input type="date" name="match_date" id="editMatchDate" class="form-control">
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small">Time</label>
+                        <input type="time" name="match_time" id="editMatchTime" class="form-control">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-sm btn-primary">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+document.getElementById('editTimeModal').addEventListener('show.bs.modal', function (e) {
+    var btn = e.relatedTarget;
+    document.getElementById('editTimeForm').action = btn.getAttribute('data-action');
+    document.getElementById('editMatchDate').value = btn.getAttribute('data-date');
+    document.getElementById('editMatchTime').value = btn.getAttribute('data-time');
+});
 </script>
 </body>
 </html>

@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>All Bets{% if user %} – {{ user.username }}{% endif %}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+<div class="container mt-4 mb-5">
+
+    <div class="d-flex flex-column flex-sm-row justify-content-sm-between align-items-center mb-4 text-center text-sm-start">
+        <h2>All Bets</h2>
+        <div class="d-flex align-items-center gap-2 mt-2 mt-sm-0">
+            {% if user %}
+                <a href="{{ url_for('dashboard', username=user.username) }}" class="btn btn-outline-primary btn-sm">Dashboard</a>
+            {% else %}
+                <a href="{{ url_for('index') }}" class="btn btn-outline-primary btn-sm">Login</a>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+            <span>Player Balances</span>
+            <div class="btn-group btn-group-sm" role="group">
+                <input type="radio" class="btn-check" name="balanceMode" id="modeCurrent"
+                       value="current" checked autocomplete="off" onchange="applyFilters()">
+                <label class="btn btn-outline-info" for="modeCurrent">Current</label>
+                <input type="radio" class="btn-check" name="balanceMode" id="modePending"
+                       value="pending" autocomplete="off" onchange="applyFilters()">
+                <label class="btn btn-outline-info" for="modePending">+ Pending</label>
+            </div>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-sm table-hover mb-0" id="balancesTable">
+                    <thead class="table-light">
+                        <tr><th>Player</th><th class="text-end">Balance</th></tr>
+                    </thead>
+                    <tbody>
+                        {% for u in all_users %}
+                            <tr data-user="{{ u.username }}" class="user-row">
+                                <td>{{ u.username }}</td>
+                                <td class="text-end balance-cell"
+                                    data-balance="{{ u.balance }}"
+                                    data-pending="{{ u.balance_pending }}">
+                                    ${{ "%.2f"|format(u.balance) }}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-dark text-white">Balance Over Time</div>
+        <div class="card-body">
+            <canvas id="balanceChart"></canvas>
+        </div>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+            <span>Bet History</span>
+            <span class="badge bg-light text-dark">{{ all_bets | length }} bets</span>
+        </div>
+        <div class="card-body p-0">
+            {% if all_bets %}
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover mb-0" id="betsTable">
+                        <thead class="table-light">
+                            <tr>
+                                <th>When</th>
+                                <th>Better</th>
+                                <th>Match</th>
+                                <th>Bet</th>
+                                <th>Odds</th>
+                                <th class="text-end">Amount</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for bet in all_bets %}
+                                <tr class="bet-row {% if not bet.settled %}table-warning{% elif bet.won %}table-success{% else %}table-secondary{% endif %}"
+                                    data-bettor="{{ bet.bettor }}">
+                                    <td class="text-nowrap">{{ bet.time }}</td>
+                                    <td>{{ bet.bettor }}</td>
+                                    <td>{{ bet.match_name }}</td>
+                                    <td>{{ bet.team_name }} – {{ bet.position_name }}</td>
+                                    <td>{{ bet.course }}</td>
+                                    <td class="text-end">${{ "%.2f"|format(bet.amount) }}</td>
+                                    <td>
+                                        {% if not bet.settled %}
+                                            <span class="badge bg-warning text-dark">pending</span>
+                                        {% elif bet.won %}
+                                            <span class="badge bg-success">won</span>
+                                        {% else %}
+                                            <span class="badge bg-secondary">lost</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="card-body">
+                    <p class="text-muted mb-0">No bets yet.</p>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+</div>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script>
+var chartDatasetsBalance = {{ chart_datasets_balance | tojson }};
+var chartDatasetsPending = {{ chart_datasets_pending | tojson }};
+var chartLabels = {{ chart_labels | tojson }};
+var chartInstance = null;
+
+function syncTables() {
+    if (!chartInstance) return;
+    var hidden = {};
+    chartInstance.data.datasets.forEach(function(ds, i) {
+        hidden[ds.label] = chartInstance.getDatasetMeta(i).hidden || false;
+    });
+    document.querySelectorAll('#balancesTable .user-row').forEach(function(row) {
+        row.hidden = hidden[row.dataset.user] || false;
+    });
+    document.querySelectorAll('#betsTable .bet-row').forEach(function(row) {
+        row.hidden = hidden[row.dataset.bettor] || false;
+    });
+}
+
+function applyFilters() {
+    var usePending = document.querySelector('input[name="balanceMode"]:checked').value === 'pending';
+
+    var src = usePending ? chartDatasetsPending : chartDatasetsBalance;
+
+    // Preserve which users are hidden when switching modes
+    var hidden = {};
+    if (chartInstance) {
+        chartInstance.data.datasets.forEach(function(ds, i) {
+            hidden[ds.label] = chartInstance.getDatasetMeta(i).hidden || false;
+        });
+    }
+
+    if (chartInstance) chartInstance.destroy();
+    chartInstance = new Chart(document.getElementById('balanceChart'), {
+        type: 'line',
+        data: { labels: chartLabels, datasets: src },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            interaction: { mode: 'index', intersect: false },
+            onClick: function(e) {
+                // Chart.js handles legend clicks natively
+            },
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    onClick: function(e, legendItem, legend) {
+                        Chart.defaults.plugins.legend.onClick.call(this, e, legendItem, legend);
+                        syncTables();
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(ctx) { return ctx.dataset.label + ': $' + ctx.parsed.y.toFixed(2); }
+                    }
+                }
+            },
+            scales: {
+                x: { ticks: { maxTicksLimit: 15, maxRotation: 45 } },
+                y: {
+                    beginAtZero: true,
+                    ticks: { callback: function(v) { return '$' + v.toFixed(0); } }
+                }
+            }
+        }
+    });
+
+    // Restore hidden state
+    chartInstance.data.datasets.forEach(function(ds, i) {
+        if (hidden[ds.label]) {
+            chartInstance.getDatasetMeta(i).hidden = true;
+        }
+    });
+    chartInstance.update();
+
+    // Update balance table values
+    document.querySelectorAll('#balancesTable .user-row').forEach(function(row) {
+        if (row.hidden) return;
+        var cell = row.querySelector('.balance-cell');
+        var val = usePending ? parseFloat(cell.dataset.pending) : parseFloat(cell.dataset.balance);
+        cell.textContent = '$' + val.toFixed(2);
+        cell.className = 'text-end balance-cell' + (val > 100 ? ' text-success' : val < 100 ? ' text-danger' : '');
+    });
+
+    syncTables();
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    applyFilters();
+});
+</script>
+</body>
+</html>
