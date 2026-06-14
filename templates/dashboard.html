@@ -16,9 +16,9 @@
 <div class="container mt-4 mb-5">
 
     <div class="d-flex flex-column flex-sm-row justify-content-sm-between align-items-center mb-4 text-center text-sm-start">
-        <h2>Welcome {{ user.username }}</h2>
+        <h2 class="mb-0">Welcome {{ user.username }}</h2>
         <div class="d-flex align-items-center gap-2 mt-2 mt-sm-0">
-            <h4 class="text-success mb-0">Balance: ${{ "%.2f"|format(computed_balance) }}</h4>
+            <h4 class="text-success mb-0">Balance: {{ "%.2f"|format(computed_balance) }} <img src="{{ url_for('static', filename='vp-icon.svg') }}" alt="VP" style="height:1em;vertical-align:middle;"></h4>
             <a href="{{ url_for('allbets', username=user.username) }}" class="btn btn-outline-dark btn-sm">All Bets</a>
             <a href="{{ url_for('index') }}" class="btn btn-outline-danger btn-sm">Logout</a>
         </div>
@@ -107,7 +107,7 @@
                                         {{ bet.team_name }} – {{ bet.position_name }} @ {{ bet.course }}
                                     </div>
                                     <span class="badge bg-secondary flex-shrink-0 mt-1">
-                                        ${{ "%.2f"|format(bet.amount) }}
+                                        {{ "%.2f"|format(bet.amount) }} <img src="{{ url_for('static', filename='vp-icon.svg') }}" alt="VP" style="height:1em;vertical-align:middle;">
                                     </span>
                                 </li>
                             {% endfor %}
@@ -176,7 +176,7 @@
                     <div>
                         <div class="d-flex justify-content-between align-items-center mb-1">
                             <label class="form-label fw-bold mb-0">Bet Amount</label>
-                            <span class="text-success fw-bold">Balance: ${{ "%.2f"|format(computed_balance) }}</span>
+                            <span class="text-success fw-bold">Balance: {{ "%.2f"|format(computed_balance) }} <img src="{{ url_for('static', filename='vp-icon.svg') }}" alt="VP" style="height:1em;vertical-align:middle;"></span>
                         </div>
                         <input type="number" class="form-control form-control-lg"
                                name="amount" id="modalAmount"

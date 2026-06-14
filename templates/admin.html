@@ -466,7 +466,7 @@
                                     <tr>
                                         <td>{{ u.id }}</td>
                                         <td>{{ u.username }}</td>
-                                        <td>${{ "%.2f"|format(u.balance) }}</td>
+                                        <td>{{ "%.2f"|format(u.balance) }} <img src="{{ url_for('static', filename='vp-icon.svg') }}" alt="VP" style="height:1em;vertical-align:middle;"></td>
                                         <td>{{ u.bet_count }}</td>
                                         <td class="delete-col" hidden>
                                             <form method="POST"
@@ -551,7 +551,7 @@
                                         <tr>
                                             <td class="text-nowrap small">{{ b.time }}</td>
                                             <td>{{ b.username }}</td>
-                                            <td>${{ "%.0f"|format(b.amount) }}</td>
+                                            <td>{{ "%.0f"|format(b.amount) }} <img src="{{ url_for('static', filename='vp-icon.svg') }}" alt="VP" style="height:1em;vertical-align:middle;"></td>
                                             <td>{{ b.course }}</td>
                                             <td>{{ b.match_name }}</td>
                                             <td>#{{ b.team_id }} {{ b.team_name }} – {{ b.position_name }}</td>
@@ -566,7 +566,7 @@
                                             </td>
                                             <td class="cancel-bet-col" hidden>
                                                 <form method="POST" action="{{ url_for('admin_cancel_bet', bet_id=b.id) }}"
-                                                      onsubmit="return confirm('Cancel bet #{{ b.id }} ({{ b.username }}, ${{ '%.0f'|format(b.amount) }})?')"
+                                                       onsubmit="return confirm('Cancel bet #{{ b.id }} ({{ b.username }}, {{ '%.0f'|format(b.amount) }} VP)?')"
                                                       class="d-inline">
                                                     <button class="btn btn-outline-danger btn-sm py-0 px-1"
                                                             title="Cancel bet">&times;</button>

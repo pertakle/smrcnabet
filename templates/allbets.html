@@ -9,7 +9,7 @@
 <div class="container mt-4 mb-5">
 
     <div class="d-flex flex-column flex-sm-row justify-content-sm-between align-items-center mb-4 text-center text-sm-start">
-        <h2>All Bets</h2>
+        <h2 class="mb-0">All Bets</h2>
         <div class="d-flex align-items-center gap-2 mt-2 mt-sm-0">
             {% if user %}
                 <a href="{{ url_for('dashboard', username=user.username) }}" class="btn btn-outline-primary btn-sm">Dashboard</a>
@@ -44,7 +44,7 @@
                                 <td class="text-end balance-cell"
                                     data-balance="{{ u.balance }}"
                                     data-pending="{{ u.balance_pending }}">
-                                    ${{ "%.2f"|format(u.balance) }}
+                                    {{ "%.2f"|format(u.balance) }} <img src="{{ url_for('static', filename='vp-icon.svg') }}" alt="VP" style="height:1em;vertical-align:middle;">
                                 </td>
                             </tr>
                         {% endfor %}
@@ -90,7 +90,7 @@
                                     <td>{{ bet.match_name }}</td>
                                     <td>{{ bet.team_name }} – {{ bet.position_name }}</td>
                                     <td>{{ bet.course }}</td>
-                                    <td class="text-end">${{ "%.2f"|format(bet.amount) }}</td>
+                                    <td class="text-end">{{ "%.2f"|format(bet.amount) }} <img src="{{ url_for('static', filename='vp-icon.svg') }}" alt="VP" style="height:1em;vertical-align:middle;"></td>
                                     <td>
                                         {% if not bet.settled %}
                                             <span class="badge bg-warning text-dark">pending</span>
@@ -169,7 +169,7 @@ function applyFilters() {
                 },
                 tooltip: {
                     callbacks: {
-                        label: function(ctx) { return ctx.dataset.label + ': $' + ctx.parsed.y.toFixed(2); }
+                        label: function(ctx) { return ctx.dataset.label + ': ' + ctx.parsed.y.toFixed(2) + ' VP'; }
                     }
                 }
             },
@@ -177,7 +177,7 @@ function applyFilters() {
                 x: { ticks: { maxTicksLimit: 15, maxRotation: 45 } },
                 y: {
                     beginAtZero: true,
-                    ticks: { callback: function(v) { return '$' + v.toFixed(0); } }
+                    ticks: { callback: function(v) { return v.toFixed(0) + ' VP'; } }
                 }
             }
         }
@@ -196,7 +196,7 @@ function applyFilters() {
         if (row.hidden) return;
         var cell = row.querySelector('.balance-cell');
         var val = usePending ? parseFloat(cell.dataset.pending) : parseFloat(cell.dataset.balance);
-        cell.textContent = '$' + val.toFixed(2);
+        cell.innerHTML = val.toFixed(2) + ' <img src="{{ url_for('static', filename='vp-icon.svg') }}" alt="VP" style="height:1em;vertical-align:middle;">';
         cell.className = 'text-end balance-cell' + (val > 100 ? ' text-success' : val < 100 ? ' text-danger' : '');
     });
 
