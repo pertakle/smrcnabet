@@ -4,6 +4,7 @@ import itertools
 import sqlite3
 from datetime import datetime, date, timedelta
 from flask import Flask, render_template, request, redirect, url_for, g, flash, session
+from argparse import ArgumentParser
 
 # --- Configuration -----------------------------------------------------------
 # These are hardcoded for now but should be moved to env/config later.
@@ -1201,6 +1202,9 @@ def admin_team_members(team_id):
 
 
 if __name__ == "__main__":
+    parser = ArgumentParser()
+    parser.add_argument("--port", type=int, default=8080, help="Port the server will use.")
+    args = parser.parse_args()
     if not os.path.exists(DATABASE):
         init_db()
-    app.run(host="0.0.0.0", port=PORT, debug=True)
+    app.run(host="0.0.0.0", port=args.port, debug=True)
