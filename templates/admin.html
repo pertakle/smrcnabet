@@ -98,7 +98,7 @@
             <div class="row g-3">
 
                 <!-- Left: Players -->
-                <div class="col-md-6">
+                <div class="col-md-4">
                     <div class="card h-100">
                         <div class="card-header d-flex justify-content-between align-items-center">
                             <span>{{ _('Players ({n})', n=players|length) }}</span>
@@ -119,8 +119,8 @@
                     </div>
                 </div>
 
-                <!-- Right: Teams -->
-                <div class="col-md-6">
+                <!-- Middle: Teams -->
+                <div class="col-md-4">
                     <div class="card h-100">
                         <div class="card-header d-flex justify-content-between align-items-center">
                             <span>{{ _('Teams ({n})', n=teams|length) }}</span>
@@ -154,6 +154,49 @@
                                 {% endfor %}
                             {% else %}
                                 <div class="text-muted small">{{ _('No teams yet.') }}</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right: Presets -->
+                <div class="col-md-4">
+                    <div class="card h-100">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span>{{ _('Presets ({n})', n=presets|length) }}</span>
+                            <button class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#createPresetModal">{{ _('+ Add Preset') }}</button>
+                        </div>
+                        <div class="card-body">
+                            {% if presets %}
+                                {% for pr in presets %}
+                                    <div class="border rounded p-2 mb-2">
+                                        <div class="d-flex justify-content-between align-items-start">
+                                            <div>
+                                                <strong class="small">#{{ pr.id }} {{ pr.name }}</strong>
+                                                {% if pr.teams %}
+                                                    <div class="mt-1 small text-muted">
+                                                        {% for t in pr.teams %}#{{ t.id }} {{ t.name }}{% if t.members %} ({{ t.members }}){% endif %}{% if not loop.last %}, {% endif %}{% endfor %}
+                                                    </div>
+                                                {% else %}
+                                                    <div class="mt-1 small text-muted">{{ _('(no teams)') }}</div>
+                                                {% endif %}
+                                            </div>
+                                            <div class="d-flex gap-1">
+                                                <button class="btn btn-outline-primary btn-sm py-0"
+                                                        data-preset-id="{{ pr.id }}"
+                                                        data-preset-name="{{ pr.name }}"
+                                                        data-teams="{{ preset_team_ids.get(pr.id, [])|join(',') }}"
+                                                        onclick="openEditPreset(this)">{{ _('Edit') }}</button>
+                                                <form method="POST" action="{{ url_for('admin_delete_preset', preset_id=pr.id) }}"
+                                                      onsubmit="return confirm({{ _('Delete this preset?')|tojson }})">
+                                                    <button class="btn btn-outline-danger btn-sm py-0">&times;</button>
+                                                </form>
+                                            </div>
+                                        </div>
+                                    </div>
+                                {% endfor %}
+                            {% else %}
+                                <div class="text-muted small">{{ _('No presets yet.') }}</div>
                             {% endif %}
                         </div>
                     </div>
@@ -251,6 +294,76 @@
             </div>
         </div>
 
+        <!-- Create Preset Modal -->
+        <div class="modal fade" id="createPresetModal" tabindex="-1">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content bg-dark">
+                    <form method="POST" action="{{ url_for('admin_create_preset') }}">
+                        <div class="modal-header">
+                            <h5 class="modal-title">{{ _('Add Preset') }}</h5>
+                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">
+                            <input type="text" name="name" class="form-control mb-3" placeholder="{{ _('Preset name') }}" required autofocus>
+                            <small class="text-muted">{{ _('Select teams:') }}</small>
+                            <div style="max-height:300px; overflow:auto;" class="mt-1">
+                                {% for t in teams %}
+                                    <div class="form-check">
+                                        <input class="form-check-input preset-team-checkbox" type="checkbox" name="team_ids"
+                                               value="{{ t.id }}" id="createp-cb-{{ t.id }}">
+                                        <label class="form-check-label small" for="createp-cb-{{ t.id }}">
+                                            #{{ t.id }} {{ t.name }}{% if t.members %} ({{ t.members }}){% endif %}
+                                        </label>
+                                    </div>
+                                {% else %}
+                                    <div class="text-muted small">{{ _('No teams yet. Add some first.') }}</div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">{{ _('Cancel') }}</button>
+                            <button type="submit" class="btn btn-success btn-sm">{{ _('Add Preset') }}</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Edit Preset Modal -->
+        <div class="modal fade" id="editPresetModal" tabindex="-1">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content bg-dark">
+                    <form id="edit-preset-form" method="POST" action="">
+                        <div class="modal-header">
+                            <h5 class="modal-title">{{ _('Edit Preset') }} <span id="edit-preset-label"></span></h5>
+                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">
+                            <input type="text" name="name" class="form-control mb-3" placeholder="{{ _('Preset name') }}" required>
+                            <small class="text-muted">{{ _('Select teams:') }}</small>
+                            <div style="max-height:300px; overflow:auto;" class="mt-1">
+                                {% for t in teams %}
+                                    <div class="form-check">
+                                        <input class="form-check-input edit-preset-team-checkbox" type="checkbox" name="team_ids"
+                                               value="{{ t.id }}" id="editp-cb-{{ t.id }}">
+                                        <label class="form-check-label small" for="editp-cb-{{ t.id }}">
+                                            #{{ t.id }} {{ t.name }}{% if t.members %} ({{ t.members }}){% endif %}
+                                        </label>
+                                    </div>
+                                {% else %}
+                                    <div class="text-muted small">{{ _('No teams yet.') }}</div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">{{ _('Cancel') }}</button>
+                            <button type="submit" class="btn btn-primary btn-sm">{{ _('Save Changes') }}</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
         <!-- ======================================================== -->
         <!-- TAB: MATCHES                                              -->
         <!-- ======================================================== -->
@@ -339,6 +452,18 @@
                         </div>
 
                         <hr class="my-2">
+                        <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+                            <label class="fw-bold small mb-0">{{ _('Preset:') }}</label>
+                            <select id="preset-select" class="form-select form-select-sm" style="width:auto;max-width:280px;"
+                                    onchange="applyPreset(this)">
+                                <option value="">{{ _('— none —') }}</option>
+                                {% for pr in presets %}
+                                    <option value="{{ preset_team_ids.get(pr.id, [])|join(',') }}" data-name="{{ pr.name }}">
+                                        {{ pr.name }} ({{ preset_team_ids.get(pr.id, [])|length }})
+                                    </option>
+                                {% endfor %}
+                            </select>
+                        </div>
                         <label class="fw-bold small mb-2">{{ _('Teams') }}</label>
                         <div class="row">
                             {% for t in teams %}
@@ -624,6 +749,31 @@ function openEditTeam(btn) {
     });
 
     new bootstrap.Modal(document.getElementById('editTeamModal')).show();
+}
+
+function openEditPreset(btn) {
+    const presetId = btn.dataset.presetId;
+    const presetName = btn.dataset.presetName;
+    const teams = (btn.dataset.teams || '').split(',').filter(Boolean);
+
+    document.getElementById('edit-preset-label').textContent = '#' + presetId + ' ' + presetName;
+    document.getElementById('edit-preset-form').action = '/admin/preset/' + presetId + '/edit';
+    document.querySelector('#edit-preset-form input[name="name"]').value = presetName;
+
+    document.querySelectorAll('#editPresetModal .edit-preset-team-checkbox').forEach(cb => cb.checked = false);
+    teams.forEach(id => {
+        const cb = document.getElementById('editp-cb-' + id);
+        if (cb) cb.checked = true;
+    });
+
+    new bootstrap.Modal(document.getElementById('editPresetModal')).show();
+}
+
+function applyPreset(select) {
+    const ids = select.value ? select.value.split(',').map(Number) : [];
+    document.querySelectorAll('#create-match-box input[name="team_ids"]').forEach(cb => {
+        cb.checked = ids.includes(Number(cb.value));
+    });
 }
 
 document.addEventListener('keydown', e => {

@@ -14,6 +14,7 @@ DATABASE = "db/betting.db"
 MARGIN = 0.05        # 5% house margin
 ELO_K = 32
 ELO_BASE = 1500
+SOLO_PRESET = "Solo"
 
 app = Flask(__name__)
 app.secret_key = "smrcnabet-dev"
@@ -131,8 +132,12 @@ def init_db():
         db = get_db()
         with open("db/schema.sql") as f:
             db.executescript(f.read())
-        with open("db/dummy_db.sql") as f:
-            db.executescript(f.read())
+        if os.path.exists("db/dummy_db.sql"):
+            with open("db/dummy_db.sql") as f:
+                db.executescript(f.read())
+        if not db.execute("SELECT 1 FROM team_presets WHERE name = ?",
+                          (SOLO_PRESET,)).fetchone():
+            db.execute("INSERT INTO team_presets (name) VALUES (?)", (SOLO_PRESET,))
         db.commit()
 
 
@@ -760,6 +765,22 @@ def _admin_context(match_sort="time", match_order="desc", match_status="",
         "GROUP BY t.id ORDER BY t.name"
     ).fetchall()
 
+    # --- Presets ---
+    presets = db.execute("SELECT id, name FROM team_presets ORDER BY name").fetchall()
+    preset_details = []
+    preset_team_ids = {}
+    for pr in presets:
+        pr_teams = db.execute(
+            "SELECT t.id, t.name, GROUP_CONCAT(p.name, ', ') AS members "
+            "FROM team_in_preset tip JOIN teams t ON t.id = tip.team_id "
+            "LEFT JOIN members mp ON mp.team_id = t.id "
+            "LEFT JOIN players p ON p.id = mp.player_id "
+            "WHERE tip.label_id = ? GROUP BY t.id",
+            (pr["id"],),
+        ).fetchall()
+        preset_team_ids[pr["id"]] = [r["id"] for r in pr_teams]
+        preset_details.append({"id": pr["id"], "name": pr["name"], "teams": pr_teams})
+
     # --- Users ---
     users_raw = db.execute(
         "SELECT u.id, u.username, "
@@ -828,6 +849,8 @@ def _admin_context(match_sort="time", match_order="desc", match_status="",
         "total_matches": total_matches,
         "teams": teams,
         "team_member_ids": team_member_ids,
+        "presets": preset_details,
+        "preset_team_ids": preset_team_ids,
         "players": all_players,
         "users": users,
         "open_bets": open_bets,
@@ -1095,13 +1118,95 @@ def admin_create_team():
     return redirect(url_for("admin", tab="players"))
 
 
+@app.route("/admin/preset/create", methods=["POST"])
+def admin_create_preset():
+    name = request.form.get("name", "").strip()
+    if not name:
+        return redirect(url_for("admin", tab="players"))
+    team_ids = request.form.getlist("team_ids")
+    db = get_db()
+    cur = db.execute("INSERT INTO team_presets (name) VALUES (?)", (name,))
+    preset_id = cur.lastrowid
+    for tid in team_ids:
+        try:
+            db.execute("INSERT INTO team_in_preset (team_id, label_id) VALUES (?, ?)",
+                       (int(tid), preset_id))
+        except (ValueError, sqlite3.IntegrityError):
+            pass
+    db.commit()
+    flash(_translate("Preset {name} created with {n} team(s)", name=name, n=len(team_ids)))
+    return redirect(url_for("admin", tab="players"))
+
+
+@app.route("/admin/preset/<int:preset_id>/edit", methods=["POST"])
+def admin_edit_preset(preset_id):
+    name = request.form.get("name", "").strip()
+    team_ids = request.form.getlist("team_ids")
+    db = get_db()
+    if name:
+        db.execute("UPDATE team_presets SET name = ? WHERE id = ?", (name, preset_id))
+    db.execute("DELETE FROM team_in_preset WHERE label_id = ?", (preset_id,))
+    for tid in team_ids:
+        try:
+            db.execute("INSERT INTO team_in_preset (team_id, label_id) VALUES (?, ?)",
+                       (int(tid), preset_id))
+        except (ValueError, sqlite3.IntegrityError):
+            pass
+    db.commit()
+    flash(_translate("Preset {name} updated", name=name or preset_id))
+    return redirect(url_for("admin", tab="players"))
+
+
+@app.route("/admin/preset/<int:preset_id>/delete", methods=["POST"])
+def admin_delete_preset(preset_id):
+    db = get_db()
+    db.execute("DELETE FROM team_in_preset WHERE label_id = ?", (preset_id,))
+    db.execute("DELETE FROM team_presets WHERE id = ?", (preset_id,))
+    db.commit()
+    flash(_translate("Preset deleted"))
+    return redirect(url_for("admin", tab="players"))
+
+
+def _create_player_with_solo_team(name):
+    """Create a player, a solo team named after them, and a solo preset.
+
+    Raises ValueError if a player with this name already exists.
+    """
+    db = get_db()
+    if db.execute("SELECT id FROM players WHERE name = ?", (name,)).fetchone():
+        raise ValueError(name)
+
+    cur = db.execute("INSERT INTO players (name) VALUES (?)", (name,))
+    pid = cur.lastrowid
+
+    team = db.execute("SELECT id FROM teams WHERE name = ?", (name,)).fetchone()
+    if not team:
+        cur = db.execute("INSERT INTO teams (name) VALUES (?)", (name,))
+        team = {"id": cur.lastrowid}
+
+    db.execute("INSERT INTO members (player_id, team_id) VALUES (?, ?)",
+               (pid, team["id"]))
+
+    preset = db.execute("SELECT id FROM team_presets WHERE name = ?", (SOLO_PRESET,)).fetchone()
+    if not preset:
+        cur = db.execute("INSERT INTO team_presets (name) VALUES (?)", (SOLO_PRESET,))
+        preset = {"id": cur.lastrowid}
+    db.execute("INSERT OR IGNORE INTO team_in_preset (team_id, label_id) VALUES (?, ?)",
+               (team["id"], preset["id"]))
+
+    return pid
+
+
 @app.route("/admin/player/create", methods=["POST"])
 def admin_create_player():
     name = request.form.get("name", "").strip()
     if name:
         db = get_db()
-        db.execute("INSERT INTO players (name) VALUES (?)", (name,))
-        db.commit()
+        try:
+            _create_player_with_solo_team(name)
+            db.commit()
+        except ValueError:
+            flash(_translate("Player {name} already exists", name=name), "warning")
     return redirect(url_for("admin", tab="players"))
 
 
@@ -1159,10 +1264,19 @@ def admin_bulk_players():
     if not lines:
         return redirect(url_for("admin", tab="players"))
     db = get_db()
+    created = 0
+    skipped = []
     for name in lines:
-        db.execute("INSERT OR IGNORE INTO players (name) VALUES (?)", (name,))
+        try:
+            _create_player_with_solo_team(name)
+            created += 1
+        except ValueError:
+            skipped.append(name)
     db.commit()
-    flash(_translate("Created {n} player(s)", n=len(lines)))
+    if created:
+        flash(_translate("Created {n} player(s)", n=created))
+    if skipped:
+        flash(_translate("Already exist: {names}", names=", ".join(skipped)), "warning")
     return redirect(url_for("admin", tab="players"))
 
 
@@ -1205,6 +1319,11 @@ if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("--port", type=int, default=8080, help="Port the server will use.")
     args = parser.parse_args()
-    if not os.path.exists(DATABASE):
-        init_db()
-    app.run(host="0.0.0.0", port=args.port, debug=True)
+    with app.app_context():
+        db = get_db()
+        has_schema = db.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='matches'"
+        ).fetchone()
+        if not has_schema:
+            init_db()
+    app.run(host="0.0.0.0", port=args.port, debug=False)
