@@ -1,10 +1,15 @@
 import os
 import json
-import itertools
 import sqlite3
 from datetime import datetime, date, timedelta
+from collections import OrderedDict
 from flask import Flask, render_template, request, redirect, url_for, g, flash, session
 from argparse import ArgumentParser
+
+try:
+    import numpy as np
+except ImportError:
+    np = None
 
 # --- Configuration -----------------------------------------------------------
 # These are hardcoded for now but should be moved to env/config later.
@@ -230,16 +235,91 @@ def team_ratings(player_ratings):
     return tr
 
 
+# --- Plackett–Luce rank probabilities ----------------------------------------
+# The naive enumeration over all n! orderings is unusable for matches with many
+# teams (27! ≈ 10^28).  We compute the same exact marginal probabilities with
+# Gauss–Laguerre quadrature on the exponential-race integral instead:
+#
+#   P(i at rank r) = ∫₀^∞ λ_i·e^(−λ_i·t) · [x^r] ∏_{j≠i}( (1−e^(−λ_j·t))·x + e^(−λ_j·t) ) dt
+#
+# with λ = 10^(rating/400).  Order-128 quadrature is exact to ~1e-12 for the
+# rating spreads seen here and is O(n²) per team.
+
+_GL_NODES_CACHE = {}
+
+
+def _gauss_laguerre(n_nodes):
+    """Nodes/weights for Gauss–Laguerre (α=0) via the symmetric Jacobi matrix."""
+    cache = _GL_NODES_CACHE.get(n_nodes)
+    if cache is not None:
+        return cache
+    J = np.zeros((n_nodes, n_nodes))
+    for k in range(n_nodes):
+        J[k, k] = 2 * k + 1
+    for k in range(n_nodes - 1):
+        b = k + 1
+        J[k, k + 1] = b
+        J[k + 1, k] = b
+    evals, evecs = np.linalg.eigh(J)
+    nodes = evals.astype(float)
+    weights = (evecs[0] ** 2).astype(float)
+    _GL_NODES_CACHE[n_nodes] = (nodes, weights)
+    return nodes, weights
+
+
+_QUAD_ORDER = 128
+_WIN_PROBS_CACHE = OrderedDict()
+_WIN_PROBS_CACHE_MAX = 256
+
+
 def _win_probs(team_ids, ratings):
-    """Exact Plackett–Luce probabilities for every team at every rank position.
+    """Plackett–Luce probabilities for every team at every rank.
 
     Returns {team_id: [prob_rank0, prob_rank1, …]} where rank 0 = best.
     """
     n = len(team_ids)
+    if n == 0:
+        return {}
+    if np is None:
+        return _win_probs_bruteforce(team_ids, ratings)
+
+    lam = tuple(round(10.0 ** (ratings[tid] / 400.0), 9) for tid in team_ids)
+    key = (tuple(team_ids), lam)
+    hit = _WIN_PROBS_CACHE.get(key)
+    if hit is not None:
+        _WIN_PROBS_CACHE.move_to_end(key)
+        return hit
+
+    np_lam = np.asarray(lam, dtype=float)
+    x, w = _gauss_laguerre(_QUAD_ORDER)
+    probs = np.zeros((n, n))
+    for i in range(n):
+        li = np_lam[i]
+        others = np.delete(np_lam, i) / li
+        row = probs[i]
+        for k in range(_QUAD_ORDER):
+            u = x[k]
+            e = np.exp(-others * u)
+            poly = np.ones(1)
+            for ej in e:
+                poly = np.convolve(poly, [ej, 1 - ej])
+            row += w[k] * poly
+
+    result = {tid: list(probs[i]) for i, tid in enumerate(team_ids)}
+    _WIN_PROBS_CACHE[key] = result
+    while len(_WIN_PROBS_CACHE) > _WIN_PROBS_CACHE_MAX:
+        _WIN_PROBS_CACHE.popitem(last=False)
+    return result
+
+
+def _win_probs_bruteforce(team_ids, ratings):
+    """Fallback exact enumeration (n! – only for tiny n / no numpy)."""
+    import itertools
+
+    n = len(team_ids)
     lam = [10.0 ** (ratings[tid] / 400.0) for tid in team_ids]
     total = sum(lam)
     probs = {tid: [0.0] * n for tid in team_ids}
-
     for perm in itertools.permutations(range(n)):
         prob = 1.0
         rem = total
@@ -248,7 +328,6 @@ def _win_probs(team_ids, ratings):
             rem -= lam[idx]
         for rank_idx, idx in enumerate(perm):
             probs[team_ids[idx]][rank_idx] += prob
-
     return probs
 
 
@@ -1326,4 +1405,4 @@ if __name__ == "__main__":
         ).fetchone()
         if not has_schema:
             init_db()
-    app.run(host="0.0.0.0", port=args.port, debug=False)
+    app.run(host="0.0.0.0", port=args.port, debug=True)

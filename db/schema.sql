@@ -6,6 +6,8 @@ DROP TABLE IF EXISTS playing_teams;
 DROP TABLE IF EXISTS matches;
 DROP TABLE IF EXISTS members;
 DROP TABLE IF EXISTS teams;
+DROP TABLE IF EXISTS team_presets;
+DROP TABLE IF EXISTS team_in_preset;
 DROP TABLE IF EXISTS players;
 DROP TABLE IF EXISTS users;
 
@@ -23,6 +25,21 @@ CREATE TABLE players (
 CREATE TABLE teams (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL
+);
+
+CREATE TABLE team_presets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL
+);
+
+CREATE TABLE team_in_preset (
+    team_id INTEGER,
+    label_id INTEGER,
+
+    PRIMARY KEY (team_id, label_id),
+
+    FOREIGN KEY (team_id) REFERENCES teams(id),
+    FOREIGN KEY (label_id) REFERENCES team_presets(id)
 );
 
 CREATE TABLE members (
